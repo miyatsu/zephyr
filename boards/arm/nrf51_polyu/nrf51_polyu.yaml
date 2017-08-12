@@ -1,0 +1,8 @@
+identifier: nrf51_polyu
+name: nRF51-POLYU
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gccarmemb
+ram: 16

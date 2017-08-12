@@ -1,0 +1,9 @@
+# Kconfig - nRF51 POLYU board configuration
+#
+# Copyright (c) 2017 Trylong Limited.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_NRF51_POLYU
+	bool "nRF51 POLYU"
+	depends on SOC_NRF51822_QFAA
