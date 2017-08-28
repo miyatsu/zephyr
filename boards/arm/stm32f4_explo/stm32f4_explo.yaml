@@ -1,0 +1,7 @@
+identifier: stm32f4_explo
+name: STM32F4EXPLORER
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gccarmemb
