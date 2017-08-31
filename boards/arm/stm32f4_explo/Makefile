@@ -1,6 +1,6 @@
-# Makefile - Olimex STM32-E407 board
+# Makefile - STM32F4EXPLORER board
 #
-# Copyright (c) 2017, Erwin Rol <erwin@erwinrol.com>
+# Copyright (c) 2017 Ding Tao <miyatsu@qq.com>
 #
 # SPDX-License-Identifier: Apache-2.0
 #
