@@ -5,8 +5,9 @@
 
 enum cmd_type_id
 {
+	CMD_START = 0,
 	/* in cmd */
-	CMD_IN_START = 0,
+	CMD_IN_START = CMD_START,
 	CMD_GET_STATUS = CMD_IN_START,
 	CMD_BORROW,
 	CMD_BACK,
@@ -15,7 +16,8 @@ enum cmd_type_id
 	CMD_IN_END = CMD_ADMIN_ROTATE,
 
 	/* out cmd */
-	CMD_STATUS,
+	CMD_OUT_START,
+	CMD_STATUS = CMD_OUT_START,
 
 	CMD_BORROW_OPENING,
 	CMD_BORROW_OPENED,
@@ -27,9 +29,13 @@ enum cmd_type_id
 	CMD_BACK_CLOSING,
 	CMD_BACK_CLOSED,
 
+	// TODO: CMD_ADMIN_*
+
 	CMD_INVALID,
 
-	// TODO CMD_ADMIN_*
+	CMD_OUT_END = CMD_INVALID,
+	CMD_END = CMD_OUT_END,
+	CMD_NULL,
 };
 
 /*******	cmd_out: status/borrow_close/return_close/admin_close		*******/

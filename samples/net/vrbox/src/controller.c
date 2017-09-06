@@ -33,9 +33,12 @@ char *cmd_type[] =
 	"back_closing",
 	"back_closed",
 
+	// TODO: "admin_*"
+
 	"ivalid",
 
-	// TODO "cmd_admin_*"
+	NULL,
+
 };
 
 /*******	cmd_out: status/borrow_close/return_close/admin_close		*******/
@@ -81,6 +84,8 @@ struct cmd_single	cmd_single_struct;
 
 char global_buff[1024];
 
+
+
 void controller_init(void)
 {
 	k_mutex_init(&cmd_status_struct_mutex);
@@ -88,14 +93,16 @@ void controller_init(void)
 
 void mqtt_json_msg_send(char *buff, uint16_t buff_len)
 {
+	// TODO: make an new API from mqtt_publish_tx_cb
 	return ;
 }
 
 void send_cmd_invalid(void)
 {
 	int rc;
-	cmd_single_struct.cmd = cmd_type[CMD_INVALID];
+
 	memset(global_buff, sizeof(global_buff), 0);
+	cmd_single_struct.cmd = cmd_type[CMD_INVALID];
 
 	rc = json_obj_encode_buf(cmd_single_descr,
 							ARRAY_SIZE(cmd_single_descr),
@@ -113,9 +120,84 @@ void send_cmd_invalid(void)
 	return ;
 }
 
-void do_cmd_get_status(char *json_msg, uint16_t json_msg_len)
+void send_cmd_status(char *json_msg, uint16_t json_msg_len, enum cmd_type_id cmd_index)
+{
+	int rc;
+
+	memset(global_buff, sizeof(global_buff), 0);
+	cmd_status_struct.cmd = cmd_type[cmd_index];
+
+	k_mutex_lock(&cmd_status_struct_mutex, K_FOREVER);
+	// update_box_status() is needed.
+	rc = json_obj_encode_buf(cmd_status_descr,
+							ARRAY_SIZE(cmd_status_descr),
+							&cmd_status_struct,
+							global_buff,
+							1024);
+	k_mutex_unlock(&cmd_status_struct_mutex);
+
+	if ( rc != 0 )
+	{
+		// TODO: Internner erro handling...
+		return ;
+	}
+
+	mqtt_json_msg_send(global_buff, strlen(global_buff));
+
+	return ;
+}
+
+/*******	cmd_out: borrow_*	*******/
+
+void send_cmd_borrow_opening(char *json_msg, uint16_t json_msg_len)
 {
 	return ;
+}
+
+void send_cmd_borrow_opened(char *json_msg, uint16_t json_msg_len)
+{
+	return ;
+}
+
+void send_cmd_borrow_closing(char *json_msg, uint16_t json_msg_len)
+{
+	return ;
+}
+
+void send_cmd_borrow_closed(char *json_msg, uint16_t json_msg_len)
+{
+	send_cmd_status(json_msg, json_msg_len, CMD_BORROW_CLOSED);
+}
+
+
+/*******	cmd_out: back_*		*******/
+
+void send_cmd_back_opening(char *json_msg, uint16_t json_msg_len)
+{
+	return ;
+}
+
+void send_cmd_back_opened(char *json_msg, uint16_t json_msg_len)
+{
+	return ;
+}
+
+void sned_cmd_back_closing(char *json_msg, uint16_t json_msg_len)
+{
+	return ;
+}
+
+void send_cmd_back_closed(char *json_msg, uint16_t json_msg_len)
+{
+	send_cmd_status(json_msg, json_msg_len, CMD_BACK_CLOSED);
+}
+
+
+/*******	cmd_in: all		*******/
+
+void do_cmd_get_status(char *json_msg, uint16_t json_msg_len)
+{
+	send_cmd_status(json_msg, json_msg_len, CMD_STATUS);
 }
 
 void do_cmd_borrow(char *json_msg, uint16_t json_msg_len)
@@ -138,7 +220,7 @@ void do_cmd_admin_rotate(char *json_msg, uint16_t json_msg_len)
 	return ;
 }
 
-
+/*******	cmd_in: parse json format	*******/
 
 void mqtt_json_msg_parse(char *json_msg, uint16_t json_msg_len)
 {
@@ -156,20 +238,28 @@ void mqtt_json_msg_parse(char *json_msg, uint16_t json_msg_len)
 	if ( rc != expected_rc ||				/* How many obj parsed */
 			cmd_single_struct.cmd == NULL )	/* Cmd field parse result */
 	{
+		/* Json parse error or no specific command finded. */
 		goto invalid;
 	}
 
+	/* Ergodic every possible command */
 	for ( index = CMD_IN_START; index <= CMD_IN_END; ++index )
 	{
 		if ( 0 == strcmp(cmd_type[index], cmd_single_struct.cmd) )
 		{
+			/* Command match */
 			break;
 		}
 	}
+
+	/* Check for command match status */
 	if ( index > CMD_IN_END )
 	{
+		/* No match any possibile command */
 		goto invalid;
 	}
+
+	/* Start to run specific command */
 	switch ( index )
 	{
 		case CMD_GET_STATUS:
@@ -194,6 +284,7 @@ void mqtt_json_msg_parse(char *json_msg, uint16_t json_msg_len)
 
 	return ;
 
+	/* Json parse error or other json format error */
 invalid:
 	send_cmd_invalid();
 	return ;
