@@ -25,22 +25,19 @@
 #endif
 #endif
 
-#ifdef CONFIG_MQTT_LIB_TLS
-#define SERVER_PORT		8883
-#else
+
 #define SERVER_PORT		1884
-#endif
+
 
 #define APP_SLEEP_MSECS		500
 #define APP_TX_RX_TIMEOUT       300
 #define APP_NET_INIT_TIMEOUT    10000
 
-#define APP_CONNECT_TRIES	10
 
-#define APP_MAX_ITERATIONS	100
 
-#define MQTT_CLIENTID		"dev/rtos"
-#define MQTT_SUBSCRIBEID	"dev/tortos"
+#define MQTT_CLIENTID			"dev/rtos"
+#define MQTT_SUBSCRIBE_TOPIC	"dev/rtos"
+#define MQTT_PUBLISH_TOPIC		"srv/controller"
 
 /* Set the following to 1 to enable the Bluemix topic format */
 #define APP_BLUEMIX_TOPIC	0
