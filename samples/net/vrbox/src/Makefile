@@ -7,3 +7,4 @@
 obj-y += main.o
 obj-y += controller.o
 obj-y += rfid.o
+obj-y += axle.o
