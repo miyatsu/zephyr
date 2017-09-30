@@ -7,6 +7,7 @@
 obj-y += main.o
 obj-y += vrbox_mqtt.o
 obj-y += controller.o
+obj-y += gpio_comm.o
 obj-y += infrared.o
 obj-y += rfid.o
 obj-y += axle.o
