@@ -20,18 +20,41 @@
 #define ZEPHYR_ADDR		"2001:db8::1"
 #define SERVER_ADDR		"2001:db8::2"
 #else
-#define ZEPHYR_ADDR		"192.168.4.101"
-#define SERVER_ADDR		"192.168.4.146"
+#define ZEPHYR_ADDR		"172.16.0.4"
+#define SERVER_ADDR		"172.16.0.1"
 #endif
 #endif
 
 
-#define SERVER_PORT		1884
+#define SERVER_PORT		1883
 
 
 #define APP_SLEEP_MSECS		500
 #define APP_TX_RX_TIMEOUT       300
 #define APP_NET_INIT_TIMEOUT    10000
+
+
+
+
+/* Factory test config */
+#undef CONFIG_APP_FACTORY_TEST
+#ifdef CONFIG_APP_FACTORY_TEST
+#define CONFIG_APP_AXLE_FACTORY_TEST
+#define CONFIG_APP_DOOR_FACTORY_TEST
+#endif /* CONFIG_APP_FACTORY_TEST */
+
+/* Axle config */
+//#define CONFIG_APP_AXLE_DEBUG
+#define CONFIG_APP_AXLE_PWM_DEV_NAME			CONFIG_PWM_STM32_2_DEV_NAME
+#define CONFIG_APP_AXLE_PWM_OUTPUT_CHANNEL		2
+#define CONFIG_APP_AXLE_PWM_PERIOD				5000
+#define CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC	10
+
+/* Door config */
+//#define CONFIG_APP_DOOR_DEBUG
+#define CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC		5
+#define CONFIG_APP_DOOR_CLOSE_TIMEOUT_IN_SEC	5
+
 
 
 
@@ -51,3 +74,4 @@
 #endif
 
 #endif
+
