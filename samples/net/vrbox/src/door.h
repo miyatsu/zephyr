@@ -39,6 +39,22 @@ int8_t door_open(uint8_t layer);
  * */
 int8_t door_close(uint8_t layer);
 
+/**
+ * @brief Open all four doors at a time
+ *
+ * @return  0 Door open success
+ *		   -1 Door open error
+ * */
+int8_t door_admin_open(void);
+
+/**
+ * @brief Close all four doors at a time
+ *
+ * @return  0 Door close success
+ *		   -1 Door close error
+ * */
+int8_t door_admin_close(void);
+
 #ifdef CONFIG_APP_DOOR_FACTORY_TEST
 int8_t door_factory_test(void);
 #endif /* CONFIG_APP_DOOR_FACTORY_TEST */

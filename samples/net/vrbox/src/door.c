@@ -50,7 +50,7 @@ static struct gpio_group_pin_t door_gpio_table[4][5] =
 {
 	/* motor open, morotr close, opened detector, closed detector, infrared detector */
 	{
-		{GPIO_GROUP_D, 14}, {GPIO_GROUP_D, 15}, {GPIO_GROUP_D,  0}, {GPIO_GROUP_D,  1}, {GPIO_GROUP_E,  7}
+		{GPIO_GROUP_D, 10}, {GPIO_GROUP_D, 9}, {GPIO_GROUP_D,  8}, {GPIO_GROUP_E, 15}, {GPIO_GROUP_E, 14}
 	},
 	{
 		{GPIO_GROUP_E,  8}, {GPIO_GROUP_E,  9}, {GPIO_GROUP_E,  9}, {GPIO_GROUP_E, 10}, {GPIO_GROUP_E, 12}
@@ -289,6 +289,52 @@ int8_t door_close(uint8_t layer)
 }
 
 /**
+ * @brief Door open work thread function
+ *
+ * When administrator want to manage the machine, if we try to open
+ * the door one by one, it will cost a lot of time to wait.
+ *
+ * We decide to make it as a single work thread, use 4 thread to do
+ * the door open job.
+ *
+ * @param arg1, Door number
+ *		  arg2, Return status
+ *		  arg3, Unused
+ * */
+static void door_open_thread_entry_point(void *arg1, void *arg2, void *arg3)
+{
+	uint8_t layer = (uint8_t)arg1;
+	int8_t *rc = (int8_t *)arg2;
+
+	*rc = door_open(layer);
+}
+
+/**
+ * @brief Door close work thread function
+ *
+ * Same as above function: door_open_thread_entry_point()
+ *
+ * @param arg1, Door number
+ *		  arg2, Return status
+ *		  arg3, Unused
+ * */
+static void door_close_thread_entry_point(void *arg1, void *arg2, void *arg3)
+{
+	uint8_t layer = (uint8_t)arg1;
+	int8_t *rc = (int8_t *)arg2;
+
+	*rc = door_close(layer);
+}
+
+/**
+ * Thread stack definition
+ *
+ * This stack name of door_init_thread_stack
+ * will reuse by door_open_close function
+ * */
+static K_THREAD_STACK_ARRAY_DEFINE(door_init_thread_stack, 4, CONFIG_APP_DOOR_INIT_THREAD_STACK_SIZE);
+
+/**
  * @brief Door hardware initial function
  *
  * @return  0 Initial OK
@@ -296,18 +342,142 @@ int8_t door_close(uint8_t layer)
  * */
 int8_t door_init(void)
 {
-	uint8_t i;
-	int8_t rc;
-	for ( i = 1; i <= 4; ++i )
+	struct k_thread	door_init_thread[4];
+
+	/**
+	 * The thread API kernel provide did not support
+	 * any value return, we will pass a pointer to
+	 * thread entry and get some status data.
+	 *
+	 * Door initial status will store here
+	 *
+	 * Initial value of door_init_status:
+	 * -------------------------------------
+	 * | byte 1 | byte 2 | byte 3 | byte 4 |
+	 * -------------------------------------
+	 * |   -4   |   -4   |   -4   |   -4   |
+	 * -------------------------------------
+	 * */
+	uint32_t door_init_status = 0xFCFCFCFC;
+
+	uint16_t i;
+
+	/* Start to init doors */
+	for ( i = 0; i < 4; ++i )
 	{
-		/* Close all four doors */
-		rc = door_close(i);
-		if ( 0 != rc )
-		{
-			return rc;
-		}
+		k_thread_create( &door_init_thread[i],
+			door_init_thread_stack[i],
+			K_THREAD_STACK_SIZEOF(door_init_thread_stack[i]),
+			door_close_thread_entry_point,
+			(void *)i, (void *)((uint32_t)&door_init_status + i), NULL,
+			0, 0, K_NO_WAIT );
+			/* Prio: 0, Flag: 0, Delay: No delay */
 	}
-	return 0;
+
+	/* Wait door to be initlized */
+	for ( i = 0; i < CONFIG_APP_DOOR_INIT_TIMEOUT_IN_SEC * 10 + 2; ++i )
+	{
+		/* All 4 doors initial success */
+		if ( 0 == door_init_status )
+		{
+			break;
+		}
+
+		/* Initial not complete, wait more 100ms */
+		k_sleep(100);
+	}
+
+	/* No need to abort the thread, it will return automaticly */
+
+	if ( i < CONFIG_APP_DOOR_INIT_TIMEOUT_IN_SEC * 10 + 2 )
+	{
+		/* Initial doors success */
+		return 0;
+	}
+
+	/**
+	 * TODO Which door are broken ?
+	 * Return to upstream by check the door_init_status
+	 * ( *(int8_t *)((int32_t)&door_init_status + i) )
+	 * */
+
+	/* Initial doors failed */
+	return -1;
+}
+
+/**
+ * @brief Open all 4 doors
+ *
+ * @return  0, open success
+ *		   <0, open error
+ * */
+int8_t door_admin_open(void)
+{
+	struct k_thread door_open_thread[4];
+
+	/**
+	 * The thread API kernel provide did not support
+	 * any value return, we will pass a pointer to
+	 * thread entry and get some status data.
+	 *
+	 * Door open status will store here
+	 *
+	 * Initial value of door_open_status:
+	 * -------------------------------------
+	 * | byte 1 | byte 2 | byte 3 | byte 4 |
+	 * -------------------------------------
+	 * |   -4   |   -4   |   -4   |   -4   |
+	 * -------------------------------------
+	 * */
+	uint32_t door_open_status = 0xFCFCFCFC;
+
+	uint16_t i;
+
+	/* Start to open doors */
+	for ( i = 0; i < 4; ++i )
+	{
+		k_thread_create( &door_open_thread[i],
+			door_open_init_stack[i],
+			K_THREAD_STACK_SIZEOF(door_init_thread_stack[i]),
+			door_open_thread_entry_point,
+			(void *)i, (void *)((uint32_t)&door_open_status + i), NULL,
+			0, 0, K_NO_WAIT );
+			/* Prio: 0, Flag: 0, Delay: No delay */
+	}
+
+	/* Wait door to opened */
+	for ( i = 0; i < CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC * 10 + 2; ++i )
+	{
+		/* All 4 doors open success */
+		if ( 0 == door_open_status )
+		{
+			break;
+		}
+
+		/* All doors open not complete, wait more 100ms */
+		k_sleep(100);
+	}
+
+	/* No need to aboat the thread, it will return automaticly */
+
+	if ( i < CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC * 10 + 2 )
+	{
+		/* All doors open success */
+		return 0;
+	}
+
+	return -1;
+}
+
+/**
+ * @brief Close all 4 doors
+ *
+ * @return  0, close success
+ *		   <0, close error
+ * */
+int8_t door_admin_close(void)
+{
+	return door_init();
 }
 
 #ifdef CONFIG_APP_DOOR_FACTORY_TEST
