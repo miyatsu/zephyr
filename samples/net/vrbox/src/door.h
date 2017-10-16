@@ -22,7 +22,7 @@ int8_t door_init(void);
  *
  * @return -1 Door has never opened
  *			0 Door has fully opened
- *			1 Door open timeout, and leave it half open
+ *		   -2 Door open timeout, and leave it half open
  * */
 int8_t door_open(uint8_t layer);
 

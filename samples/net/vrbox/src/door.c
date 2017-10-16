@@ -111,7 +111,7 @@ static void door_stop_write_gpio(uint8_t layer)
  *
  * @return -1 Door has never open
  *			0 Door has fully opened
- *			1 Door open timeout, and leave it half open
+ *		   -2 Door open timeout, and leave it half open
  * */
 static int8_t door_wait_open(uint8_t layer)
 {
@@ -146,7 +146,7 @@ static int8_t door_wait_open(uint8_t layer)
 		if ( door_not_in_position )
 		{
 			/* Half open */
-			return 1;
+			return -2;
 		}
 		/* Never opened */
 		return -1;
@@ -263,7 +263,7 @@ retry:
  *
  * @return -1 Door has never opened
  *			0 Door has fully opened
- *			1 Door open timeout, and leave it half open
+ *		   -2 Door open timeout, and leave it half open
  * */
 int8_t door_open(uint8_t layer)
 {
@@ -437,7 +437,7 @@ int8_t door_admin_open(void)
 	for ( i = 0; i < 4; ++i )
 	{
 		k_thread_create( &door_open_thread[i],
-			door_open_init_stack[i],
+			door_init_thread_stack[i],
 			K_THREAD_STACK_SIZEOF(door_init_thread_stack[i]),
 			door_open_thread_entry_point,
 			(void *)i, (void *)((uint32_t)&door_open_status + i), NULL,
