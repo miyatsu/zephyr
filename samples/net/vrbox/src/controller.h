@@ -1,6 +1,11 @@
 #ifndef CONTROLLER_H
 #define CONTROLLER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
+#include <stdint.h>
 #include <stdbool.h>
 
 enum cmd_type_id
@@ -13,6 +18,7 @@ enum cmd_type_id
 	CMD_BACK,
 	CMD_ADMIN_FETCH,
 	CMD_ADMIN_ROTATE,
+	CMD_ADMIN_CLOSE,
 	CMD_IN_END = CMD_ADMIN_ROTATE,
 
 	/* out cmd */
@@ -31,12 +37,16 @@ enum cmd_type_id
 
 	// TODO: CMD_ADMIN_*
 
-	CMD_INVALID,
+	CMD_HEADSET_ASK,
+	CMD_HEADSET_BUY,
 
+	CMD_INVALID,
+	
 	CMD_OUT_END = CMD_INVALID,
 	CMD_END = CMD_OUT_END,
 	CMD_NULL,
 };
+
 
 /*******	cmd_out: status/borrow_close/return_close/admin_close		*******/
 
@@ -55,38 +65,20 @@ enum cmd_type_id
  *		}
  *		"door": [bool, 4 max],			// Is door ok or not
  *		"axle": bool,					// Is axle ok or not
- *		"vrid": [string, 4*7*2=56 max]	// All vrid in this box
  * }
  *
  * */
-
-struct box
-{
-	bool round1[8];
-	const size_t round1_len;
-
-	bool round2[8];
-	const size_t round2_len;
-
-	bool round3[8];
-	const size_t round3_len;
-
-	bool round4[8];
-	const size_t round4_len;
-};
-
 struct cmd_status
 {
 	char *cmd;
-	struct box box;
+
+	bool box[4*7];
+	const size_t box_len;
 
 	bool door[4];
 	const size_t door_len;
 
 	bool axle;
-
-	char *vrid[4*8*2];
-	const size_t vrid_len;
 };
 
 /*******	cmd_in: borrow/return		*******/
@@ -102,12 +94,30 @@ struct cmd_status
  * }
  *
  * */
-
 struct cmd_open
 {
 	char *cmd;
 	uint8_t round;
 	uint8_t number;
+};
+
+/*******	cmd_out: borrow_opening/back_opening	*******/
+
+/**
+ *
+ * JSON format:
+ * {
+ *		"cmd": "borrow_opening",
+ *		"axle": true,
+ *		"door": true
+ * }
+ *
+ * */
+struct cmd_opening
+{
+	char *cmd;
+	bool axle;
+	bool door;
 };
 
 /*******	cmd_in_out: get_status/status/invalid	*******/
@@ -121,12 +131,17 @@ struct cmd_open
  * }
  *
  * */
-
 struct cmd_single
 {
 	char *cmd;
 };
 
+
+void controller_cmd_parse(char *, uint16_t);
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 
 #endif	/* CONTROLLER_H */
 
