@@ -9,6 +9,7 @@
 #endif /* CONFIG_APP_INFRARED_DEBUG */
 
 #include "gpio_comm.h"
+#include "config.h"
 
 /**
  * STM32F4_EXPLO On board IO map, P3:
@@ -53,6 +54,35 @@ static struct gpio_group_pin_t infrared_gpio_table[4 * 7] =
 	{GPIO_GROUP_F, 12}, {GPIO_GROUP_F, 11}, {GPIO_GROUP_F, 14}, {GPIO_GROUP_F, 13},
 	{GPIO_GROUP_G,  0}, {GPIO_GROUP_F, 15}, {GPIO_GROUP_B, 13}, {GPIO_GROUP_G,  1},
 };
+
+/* Box status, true means box not empty, false means box empty */
+static bool infrared_status[4][7] =
+{
+	{false, false, false, false, false, false, false},
+	{false, false, false, false, false, false, false},
+	{false, false, false, false, false, false, false},
+	{false, false, false, false, false, false, false}
+};
+
+static bool infrared_is_box_empty(uint8_t, uint8_t);
+
+/**
+ * @brief Get infrared status array
+ *
+ * @return pointer of pointer point to infrared_status[4][7]
+ * */
+bool** infrared_get_status_array(void)
+{
+	uint8_t i, j;
+	for ( i = 0; i < 4; ++i )
+	{
+		for ( j = 0; j < 7; ++j )
+		{
+			infrared_status[i][j] = !infrared_is_box_empty(i, j);
+		}
+	}
+	return (bool**)infrared_status;
+}
 
 /**
  * @brief Read the value of infrared detector in the box
@@ -105,18 +135,6 @@ static bool infrared_is_box_empty(uint8_t layer, uint8_t axle_position)
 	return infrared_is_box_empty_read_gpio(infrared_detector_number);
 }
 
-void infrared_box_update(bool *box)
-{
-	uint8_t i, j;
-	for ( i = 0; i < 4; ++i )
-	{
-		for ( j = 0; j < 7; ++j )
-		{
-			box[i * 7 + j] = infrared_is_box_empty(i, j);
-		}
-	}
-}
-
 /**
  * @brief infrared initial function
  *
@@ -144,27 +162,28 @@ void infrared_init(void)
 
 void infrared_debug(void)
 {
-	/*
-	uint32_t g1, g2, g3, g4;
-	struct device *dev0 = device_get_binding("GPIOE");
 
+	uint32_t g1, g2, g3, g4;
+	struct device *dev0 = device_get_binding("GPIOG");
+/*
 	if ( 0 != gpio_pin_configure(dev0, 0, GPIO_DIR_IN | GPIO_PUD_PULL_UP) )
 	{
 		printk("gpio_pin_configure error!");
 		return ;
 	}
-	struct device *dev1 = device_get_binding("GPIOF");
+*/
+	struct device *dev1 = device_get_binding("GPIOB");
 	struct device *dev2 = device_get_binding("GPIOB");
 	while (1)
 	{
-		gpio_pin_read(dev0, 7, &g1);
-		gpio_pin_read(dev0, 8, &g2);
-		gpio_pin_read(dev0, 9, &g3);
-		gpio_pin_read(dev0, 10, &g4);
+		gpio_pin_read(dev0, 12, &g1);
+		gpio_pin_read(dev0, 14, &g2);
+		gpio_pin_read(dev0, 15, &g3);
+		gpio_pin_read(dev1, 7, &g4);
 		printk("%d, %d, %d, %d\n", g1, g2, g3, g4);
 		k_sleep(200);
 	}
-	*/
+	/*
 	for ( uint8_t i = 1; i <= 4; ++i )
 	{
 		for ( uint8_t j = 1; j <= 7; ++j )
@@ -180,6 +199,7 @@ void infrared_debug(void)
 			k_sleep(100);
 		}
 	}
+	*/
 	return ;
 }
 
