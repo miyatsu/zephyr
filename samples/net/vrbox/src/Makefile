@@ -6,6 +6,8 @@
 
 obj-y += main.o
 obj-y += vrbox_mqtt.o
+obj-y += libc_ext.o
+obj-y += parson.o
 obj-y += gpio_comm.o
 obj-y += door.o
 obj-y += infrared.o
