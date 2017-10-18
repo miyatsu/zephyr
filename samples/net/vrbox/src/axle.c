@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 Shenzhen Trylong Intelligence Technology Co., Ltd. All right reserved.
+ * Copyright (c) 2017 Shenzhen Trylong Intelligence Technology Co., Ltd. All rights reserved.
  *
  * @file axle.c
  *
@@ -15,14 +15,15 @@
 
 #include <kernel.h>
 #include <gpio.h>
+#include <misc/util.h>
 #include <pwm.h>
 
 #ifdef CONFIG_APP_AXLE_DEBUG
 #include <misc/printk.h>
 #endif /* CONFIG_APP_AXLE_DEBUG */
 
-#include "gpio_comm.h"
 #include "config.h"
+#include "gpio_comm.h"
 
 /**
  * P4:
@@ -53,14 +54,6 @@
  *
  * */
 
-/**
- * Current axle position, default NONE
- * initialized by function axle_ini()
- *
- * This variable MUST initialize before use any axle APIs
- * */
-static uint8_t axle_position = 0;
-
 static struct gpio_group_pin_t axle_gpio_table[] =
 {
 	{GPIO_GROUP_D, 14},		/* Axle position start*/
@@ -75,6 +68,20 @@ static struct gpio_group_pin_t axle_gpio_table[] =
 	{GPIO_GROUP_E, 10},		/* Axle rotate direction */
 	{GPIO_GROUP_E, 11},		/* Stepper motor break */
 };
+
+/* Axle functionality status, true means work fine, false means axle is broken */
+static bool axle_status = false;
+
+/**
+ * @brief Get axle functionality status
+ *
+ * @return true, axle fine
+ *		   false, axle is broken
+ * */
+bool axle_get_status(void)
+{
+	return axle_status;
+}
 
 /**
  * @brief Read position index's level.
@@ -178,12 +185,6 @@ static bool axle_set_rotate_enable_disable(uint8_t enable)
 
 	if ( enable )
 	{
-		/* Unlock the break */
-		axle_set_rotate_lock_unlock(1);
-
-		/* Wait the break fully unlocked */
-		k_sleep(50);
-
 		/* Start to rotate */
 		rc = pwm_pin_set_usec(pwm_dev, channel, period, pulse_width);
 	}
@@ -191,12 +192,6 @@ static bool axle_set_rotate_enable_disable(uint8_t enable)
 	{
 		/* Stop rotate */
 		rc = pwm_pin_set_usec(pwm_dev, channel, period, 0);
-
-		/* Wait the axle fully stoped */
-		k_sleep(50);
-
-		/* Lock the break */
-		axle_set_rotate_lock_unlock(0);
 	}
 	return !rc;
 }
@@ -254,6 +249,143 @@ static bool axle_set_rotate_enable_disable(uint8_t enable)
  * */
 
 /**
+ * @brief Callback function when axle rotate to certain position
+ *
+ * @param dev Gpio device pointer
+ *		  gpio_cb Gpio callback structure
+ *		  pins Mask of pins that trigger the callback
+ * */
+static void axle_in_position_irq_cb(struct device *dev,
+									struct gpio_callback *gpio_cb,
+									uint32_t pins)
+{
+	/**
+	 * ONLY the axle rotate is needed, that this function can be called.
+	 *
+	 * (a). Assume we at N position and we want goto N position, the gpio
+	 *		interrupt will not be enabled.
+	 *		Thus this functino will not be called.
+	 *
+	 * (b). Assume we at N position and we want goto M position, the gpio
+	 *		interrupt will ONLY enabled at M position's pin.
+	 *		Thus onece this functino has been called, that means the axle
+	 *		is already at M position. We don't have read the gpio status
+	 *		to determine if the interrupt is rotate in or out (rising edge
+	 *		or falling edge).
+	 *
+	 * According to anaiysis above, onece this function has been called,
+	 * we only have to disable the rotate and disable the gpio interrupt.
+	 * */
+
+	uint32_t value, pin = 0;
+
+	/* Parse pin mask to pin number */
+	while ( pins )
+	{
+		pins >>= 1;
+		pin++;
+	}
+	pin--;
+
+	/* Disable gpio interrupt */
+	gpio_pin_disable_callback(dev, pin);
+
+	/* Stop rotate */
+	axle_set_rotate_enable_disable(0);
+}
+
+/**
+ * @brief Enable position's gpio interrupt
+ *
+ * @position Position number of detector, [1-7] is expected
+ * */
+static void axle_in_position_irq_enable(uint8_t position)
+{
+	struct device *dev = device_get_binding(gpio_group_dev_name_table[axle_gpio_table[position - 1].gpio_group]);
+	gpio_pin_enable_callback(dev, axle_gpio_table[position - 1].gpio_pin);
+}
+
+/**
+ * @brief Disable position's gpio interrupt
+ *
+ * @position Position number of detector, [1-7] is expected
+ * */
+static void axle_in_position_irq_disable(uint8_t position)
+{
+	struct device *dev = device_get_binding(gpio_group_dev_name_table[axle_gpio_table[position - 1].gpio_group]);
+	gpio_pin_disable_callback(dev, axle_gpio_table[position - 1].gpio_pin);
+}
+
+/**
+ * @brief Initial axle position gpio interrupt
+ *
+ * This function will be called by axle_init()
+ * */
+static void axle_in_position_irq_init(void)
+{
+	uint8_t		i, j;
+	uint32_t	pin_mask;
+	bool		gpio_initialized_table[7] = {false, false, false, false, false, false, false};
+	struct		device *dev = NULL;
+
+	static struct	gpio_callback gpio_cb[7];
+	static uint8_t	gpio_cb_number = 0;
+
+	/**
+	 * The "struct gpio_callback" MUST NOT alloc in heap memory, so we declare it
+	 * as static and it will be link into .bss section.
+	 *
+	 * The "struct gpio_callback" can ONLY be initial ONECE by gpio_callback_init().
+	 *
+	 * If we use one loop to add all pins into one gpio_callback, we MUST assume
+	 * all seven pins are the same group.
+	 *
+	 * For extendibility consideration, we use nested loop to find out which pins
+	 * are the same group, and initial it with one particular "struct gpio_callback".
+	 * */
+
+	/* Initial all seven pins */
+	for ( i = 0, gpio_cb_number = 0; i < 7; ++i )
+	{
+		if ( gpio_initialized_table[i] )
+		{
+			/* Already initialized, skip to next pin */
+			continue;
+		}
+
+		dev = device_get_binding(gpio_group_dev_name_table[axle_gpio_table[i].gpio_group]);
+		pin_mask = 0;
+
+		/* Get the same group pins into pin_mask */
+		for ( j = i, pin_mask = 0; j < 7; ++j )
+		{
+			/* The index j's gpio name is the same as current dev, initial them at onece. */
+			if ( axle_gpio_table[i].gpio_group == axle_gpio_table[j].gpio_group )
+			{
+				/* Configure current gpio as intrrupt input */
+				gpio_comm_conf(&axle_gpio_table[j], GPIO_DIR_IN | GPIO_INT | GPIO_INT_DEBOUNCE | GPIO_PUD_PULL_UP | GPIO_INT_EDGE | GPIO_INT_ACTIVE_LOW);
+
+				/* Add new pin number into pin_mask */
+				pin_mask |= BIT(axle_gpio_table[j].gpio_pin);
+
+				/* Skip current pin on initialization */
+				gpio_initialized_table[j] = true;
+			}
+		}
+
+		/* Initial callback */
+		gpio_init_callback(&gpio_cb[gpio_cb_number], axle_in_position_irq_cb, pin_mask);
+
+		/* Add one particular callback structure */
+		gpio_add_callback(dev, &gpio_cb[gpio_cb_number]);
+
+		/* Increase group numbers */
+		gpio_cb_number++;
+	}
+	return ;
+}
+
+/**
  * @brief Rotate the axle to particular position
  *
  * @param destination_position The real position want to get
@@ -263,7 +395,7 @@ static bool axle_set_rotate_enable_disable(uint8_t enable)
  * */
 int8_t axle_rotate_to(uint8_t destination_position)
 {
-	uint8_t	axle_posision;
+	uint8_t	axle_position;
 	uint8_t	axle_rotate_direction;
 	int8_t	axle_rotate_times;
 
@@ -291,7 +423,8 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	axle_rotate_times = (int8_t)axle_position - (int8_t)destination_position;
 
 	/* Positive rotate clockwise, Negetive rotate anticlockwise */
-	axle_set_rotate_direction(axle_rotate_times > 0 ? 1 : 0);
+	axle_rotate_direction = axle_rotate_times > 0 ? 1 : 0;
+	axle_set_rotate_direction(axle_rotate_direction);
 
 	/* Get ride of signed, since we already set rotate direction */
 	axle_rotate_times = axle_rotate_times >= 0 ? axle_rotate_times : -axle_rotate_times;
@@ -301,6 +434,20 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	{
 		return 0;
 	}
+
+	/**
+	 * At this point, we are not at destination position
+	 * start rotate to destination position.
+	 * */
+
+	/* Enable destination position's gpio irq */
+	axle_in_position_irq_enable(destination_position);
+
+	/* Unlock the axle break */
+	axle_set_lock_unlock(1);
+
+	/* Wait the break fully unlocked */
+	k_sleep(50);
 
 	/* Start to rotate axle */
 	axle_set_rotate_enable_disable(1);
@@ -321,14 +468,53 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	/* Stop rotate axle */
 	axle_set_rotate_enable_disable(0);
 
+	/* Wait the axle fully stoped */
+	k_sleep(50);
+
+	/* Lock the axle break */
+	axle_set_lock_unlock(0);
+
+	/* Disable destination position's gpio irq */
+	axle_in_position_irq_disable(destination_position);
+
 	/* Axle rotate timeout */
 	if ( i >= ( wait_time_in_sec * 10 ) * axle_rotate_times )
 	{
+		axle_status = false;
 		return -1;
 	}
 
 	/* Axle rotate to correct position */
+	axle_status = true;
 	return 0;
+}
+
+/**
+ * @brief Rotate to next position
+ *
+ * This function is for administrator usage
+ *
+ * @return  0, rotate success
+ *		   -1, rotate error
+ * */
+int8_t axle_rotate_to_next(void)
+{
+	uint8_t axle_position = axle_position_read();
+
+	/* Can not read the position */
+	if ( 0 == axle_position )
+	{
+		return -1;
+	}
+	/* Already at the last position */
+	else if ( 7 == axle_position )
+	{
+		return 0;
+	}
+	else
+	{
+		return axle_rotate_to(axle_position + 1);
+	}
 }
 
 /**
@@ -366,16 +552,15 @@ static int8_t axle_rotate_init(uint8_t direction)
 	/* Disable axle */
 	axle_set_rotate_enable_disable(0);
 
-	/* Update axle position */
-	axle_position = axle_position_read();
-
 	/* Check for timeout */
 	if ( i >= wait_time_in_sec )
 	{
 		/* Wait axle rotate to next position timeout */
+		axle_status = false;
 		return -1;
 	}
 
+	axle_status = true;
 	return 0;
 }
 
@@ -391,22 +576,39 @@ int8_t axle_init(void)
 	uint8_t i;
 	uint32_t temp;
 
+	axle_in_position_irq_init();
+
 	/* Flush the axle position gpio input */
 	for ( i = 0; i < 7; ++i )
 	{
 		gpio_comm_read(&axle_gpio_table[i], &temp);
 	}
 
-	axle_set_rotate_direction(0);		/* Flush output and set rotate anticlockwise */
-	axle_set_rotate_lock_unlock(0);		/* Flush output and set the break locked */
+	/* Set direction gpio as output and level it up for default */
+	gpio_comm_conf(&axle_gpio_table[8], GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
+
+	/* Flush output and set rotate anticlockwise */
+	axle_set_rotate_direction(0);
+
+	/* Set the break gpio as output and level it up for default */
+	gpio_comm_conf(&axle_gpio_table[9], GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
+
+	/* Flush output and set the break locked */
+	axle_set_rotate_lock_unlock(0);
 
 	/**
-	 * Rotate the axle to get make the axle at one certain position
+	 * Rotate the axle to make the axle at one certain position
 	 *
 	 * If rotate anticlockwise may reach the limitation of rotate
 	 * angles, then try to rotate clockwise
 	 * */
-	return ( 0 == axle_rotate_init(0) ) || ( 0 == axle_rotate_init(1) ) ? 0 : -1;
+	if ( 0 == axle_rotate_init(0) || 0 == axle_rotate_init(1) )
+	{
+		axle_status = true;
+		return 0;
+	}
+	axle_status = false;
+	return -1;
 }
 
 #ifdef CONFIG_APP_AXLE_FACTORY_TEST
@@ -420,68 +622,28 @@ int8_t axle_factory_test(void)
 
 #ifdef CONFIG_APP_AXLE_DEBUG
 
-void axle_debug_1(void)
-{
-	/* Unlock break */
-	axle_set_rotate_lock_unlock(0);
-	while (1)
-	{
-		if ( axle_set_rotate_enable_disable(1) )
-		{
-			printk("Set PWM OK\n");
-		}
-		k_sleep(3000);
-		if ( axle_set_rotate_enable_disable(0) )
-		{
-			printk("Set PWM OK\n");
-		}
-		k_sleep(3000);
-		printk("Done!\n");
-	}
-}
-
 void axle_debug(void)
 {
-	axle_init();
-	printk("Position confirmed\n");
-	while (1)
+	uint8_t i;
+	axle_in_position_irq_init();
+	while ( 1 )
 	{
-		for ( uint8_t i = 1; i <= 7; ++i )
+		printk("Start to enable irq...\n");
+		for ( i = 1; i <= 7; ++i )
 		{
-			printk("Rotate to %d\n", i);
-			axle_rotate_to(i);
-			k_sleep(3000);
+			axle_in_position_irq_enable(i);
 		}
-	}
-	return ;
-}
-
-/**
- * PA2 TIM2_CH3
- * */
-void axle_debug_pwm(void)
-{
-	/**
-	 * WARNING: The Enable/Disable Input on stepper motor driver is NOT working!!!
-	 *
-	 * The stepper motor driver default enable without hight level input to it.
-	 *
-	 * So, to enable and disable the rotate of axle, we need use PWM generator
-	 * to control it.
-	 * */
-	printk("Endtering %s() ...\n", __func__);
-	struct device *dev = device_get_binding(CONFIG_PWM_STM32_2_DEV_NAME);
-	axle_set_rotate_lock_unlock(0);
-	k_sleep(100);
-	if ( pwm_pin_set_usec(dev, 2, 5000, 2500) )
-	{
-		printk("pwm pin set failes!\n");
-	}
-	while (1)
-	{
+		printk("Enable ok, wait 10 sec...\n");
+		k_sleep(10000);
+		printk("Start to disable irq...\n");
+		for ( i = 1; i <= 7; ++i )
+		{
+			axle_in_position_irq_disable(i);
+		}
+		printk("Disable ok, wait 1 sec...\n");
 		k_sleep(1000);
 	}
-	return 0;
+	return ;
 }
 
 #endif /* CONFIG_APP_AXLE_DEBUG */

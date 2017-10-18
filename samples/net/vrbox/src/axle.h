@@ -1,3 +1,15 @@
+/**
+ * Copyright (c) 2017 Shenzhen Trylong Intelligence Technology Co., Ltd. Allrights reserved.
+ *
+ * @file axle.h
+ *
+ * @brief Main axle of vrbox API
+ *
+ * @author Ding Tao <miyatsu@qq.com>
+ *
+ * @date 19:40:58 October 18, 2017 GTM+8
+ *
+ * */
 #ifndef AXLE_H
 #define AXLE_H
 
@@ -24,6 +36,16 @@ int8_t axle_init(void);
  *		   <0 Some error happened
  * */
 int8_t axle_rotate_to(uint8_t destination_position);
+
+/**
+ * @brief Rotate to next position
+ *
+ * This function is for administrator usage only
+ *
+ * @return  0, rotate success
+ *		   -1, rotate error
+ * */
+int8_t axle_rotate_to_next(void);
 
 #ifdef CONFIG_APP_AXLE_FACTORY_TEST
 int8_t axle_factory_test(void);
