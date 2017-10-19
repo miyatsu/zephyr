@@ -20,9 +20,8 @@
 #include <misc/printk.h>
 #endif /* CONFIG_APP_DOOR_DEBUG */
 
-#include "gpio_comm.h"
-
 #include "config.h"
+#include "gpio_comm.h"
 
 /**
  * P5:
@@ -48,20 +47,40 @@
 
 static struct gpio_group_pin_t door_gpio_table[4][5] =
 {
-	/* motor open, morotr close, opened detector, closed detector, infrared detector */
+	/**
+	 * motor open, morotr close,
+	 * opened detector, closed detector, infrared detector
+	 * */
 	{
-		{GPIO_GROUP_D, 10}, {GPIO_GROUP_D, 9}, {GPIO_GROUP_D,  8}, {GPIO_GROUP_E, 15}, {GPIO_GROUP_E, 14}
+		{GPIO_GROUP_D, 10}, {GPIO_GROUP_D, 9},
+		{GPIO_GROUP_D,  8}, {GPIO_GROUP_E, 15}, {GPIO_GROUP_E, 14}
 	},
 	{
-		{GPIO_GROUP_E,  8}, {GPIO_GROUP_E,  9}, {GPIO_GROUP_E,  9}, {GPIO_GROUP_E, 10}, {GPIO_GROUP_E, 12}
+		{GPIO_GROUP_E,  8}, {GPIO_GROUP_E,  9},
+		{GPIO_GROUP_E,  9}, {GPIO_GROUP_E, 10}, {GPIO_GROUP_E, 12}
 	},
 	{
-		{GPIO_GROUP_E, 13}, {GPIO_GROUP_E, 14}, {GPIO_GROUP_E, 11}, {GPIO_GROUP_E, 12}, {GPIO_GROUP_D,  9}
+		{GPIO_GROUP_E, 13}, {GPIO_GROUP_E, 14},
+		{GPIO_GROUP_E, 11}, {GPIO_GROUP_E, 12}, {GPIO_GROUP_D,  9}
 	},
 	{
-		{GPIO_GROUP_D, 10}, {GPIO_GROUP_D, 15}, {GPIO_GROUP_E, 13}, {GPIO_GROUP_E, 14}, {GPIO_GROUP_E,  7}
+		{GPIO_GROUP_D, 10}, {GPIO_GROUP_D, 15},
+		{GPIO_GROUP_E, 13}, {GPIO_GROUP_E, 14}, {GPIO_GROUP_E,  7}
 	}
 };
+
+/* Door functionality status */
+static bool door_status[] = {false, false, false, false};
+
+/**
+ * @brief Get door status
+ *
+ * @return pointer point to door status array
+ * */
+const bool* door_get_status_array(void)
+{
+	return door_status;
+}
 
 /**
  * @brief Set door motor to open
@@ -104,6 +123,283 @@ static void door_stop_write_gpio(uint8_t layer)
 }
 
 /**
+ * @brief Determine which layer's gpio trigger the irq handler
+ *
+ * @param dev Device pointer trigger the gpio irq
+ *
+ * @param pins Pin mask that trigger current irq handler
+ *
+ * @param index 2 means open detector
+ *				3 means close detector
+ *				4 means on door infrared detector
+ * */
+uint8_t door_irq_to_layer(struct device *dev, uint32_t pins, uint8_t index)
+{
+	uint8_t i;
+	uint32_t pin = 0;
+	struct device *dev_temp;
+
+	/**
+	 * Parse pin mask to pin number
+	 *
+	 * FIXME: Two or more irq comming, the pins will not be the power of two
+	 * */
+	while ( 1 != pins )
+	{
+		pins >>= 1;
+		pin++;
+	}
+	for ( i = 0; i < 4; ++i )
+	{
+		dev_temp = device_get_binding(gpio_group_dev_name_table	\
+				[door_gpio_table[i][index].gpio_group]);
+
+		if ( dev_temp == dev && pin == door_gpio_table[i][index].gpio_pin )
+		{
+			return i + 1;
+		}
+	}
+
+	/* No find */
+	return 0;
+}
+
+static void door_comm_irq_enable(uint8_t layer, uint8_t index)
+{
+	struct device *dev = device_get_binding(gpio_group_dev_name_table	\
+			[door_gpio_table[layer - 1][index].gpio_group]);
+	gpio_pin_enable_callback(dev, door_gpio_table[layer - 1][index].gpio_pin);
+}
+
+static void door_comm_irq_disable(uint8_t layer, uint8_t index)
+{
+	struct device *dev = device_get_binding(gpio_group_dev_name_table	\
+			[door_gpio_table[layer - 1][index].gpio_group]);
+	gpio_pin_disable_callback(dev, door_gpio_table[layer - 1][index].gpio_pin);
+}
+
+static inline void door_open_in_position_irq_enable(uint8_t layer)
+{
+	door_comm_irq_enable(layer, 2);
+}
+
+static inline void door_open_in_position_irq_disable(uint8_t layer)
+{
+	door_comm_irq_disable(layer, 2);
+}
+
+static inline void door_close_in_position_irq_enable(uint8_t layer)
+{
+	door_comm_irq_enable(layer, 3);
+}
+
+static inline void door_close_in_position_irq_disable(uint8_t layer)
+{
+	door_comm_irq_disable(layer, 3);
+}
+
+static inline void door_infrared_irq_enable(uint8_t layer)
+{
+	door_comm_irq_enable(layer, 4);
+}
+
+static inline void door_infrared_irq_disable(uint8_t layer)
+{
+	door_comm_irq_disable(layer, 4);
+}
+
+/**
+ * @brief Callback function, called when the door is fully opened
+ *
+ * @param dev Gpio device pointer
+ *
+ * @param gpio_cb Gpio callback structure
+ *
+ * @param pins Mask of pins that trigger the callback
+ * */
+static void door_open_in_position_irq_cb(struct device *dev,
+										struct gpio_callback *gpio_cb,
+										uint32_t pins)
+{
+	uint8_t layer = door_irq_to_layer(dev, pins, 2);
+
+	if ( 0 == layer )
+	{
+		/* Error */
+		return ;
+	}
+
+	/* Disable the open detector irq, in case of trigger by accident */
+	door_open_in_position_irq_disable(layer);
+
+	/* Stop openning the door */
+	door_stop_write_gpio(layer);
+}
+
+/**
+ * @brief Callback function, called when the door is fully closed
+ *
+ * @param dev Gpio device pointer
+ *
+ * @param gpio_cb Gpio callback structure
+ *
+ * @param pins Mask of pins that trigger the callback
+ * */
+static void door_close_in_position_irq_cb(struct device *dev,
+										struct gpio_callback *gpio_cb,
+										uint32_t pins)
+{
+	uint8_t layer = door_irq_to_layer(dev, pins, 3);
+
+	if ( 0 == layer )
+	{
+		/* Error */
+		return ;
+	}
+
+	/* Disable the close detector irq, in case of trigger by accident */
+	door_close_in_position_irq_disable(layer);
+
+	/* Disable the on door infrared detector */
+	door_infrared_irq_disable(layer);
+
+	/* Stop closing the door */
+	door_stop_write_gpio(layer);
+}
+
+/**
+ * @brief Callback function, called when the on door infrared detecte
+ *		  something while the door is at closing stage.
+ *
+ * @param dev Gpio device pointer
+ *
+ * @param gpio_cb Gpio callback structure
+ *
+ * @param pins Mask of pins that trigger the callback
+ * */
+static void door_infrared_irq_cb(struct device *dev,
+								struct gpio_callback* gpio_cb,
+								uint32_t pins)
+{
+	uint8_t layer = door_irq_to_layer(dev, pins, 4);
+
+	if ( 0 == layer )
+	{
+		/* Error */
+		return ;
+	}
+
+	/* Disable the on door infrared detector */
+	door_infrared_irq_disable(layer);
+
+	/* Disable close in position gpio irq */
+	door_close_in_position_irq_disable(layer);
+
+	/* Re-Enable open in position gpio irq */
+	door_open_in_position_irq_enable(layer);
+
+	/* Start to open, while the door could be jam by forgin matters */
+	door_open_write_gpio(layer);
+}
+
+/**
+ * @brief Door gpio irq initial function
+ *
+ * @param index IRQ type, 2 means open detector
+ *						  3 means close detector
+ *						  4 means on door infrared detector
+ * */
+static void door_comm_irq_init(uint8_t index)
+{
+	static struct gpio_callback gpio_cb[9];
+	static uint8_t gpio_cb_number = 0;
+
+	uint8_t i, j;
+	uint32_t pin_mask;
+	struct device *dev;
+	bool gpio_initialized_table[4] = {false, false, false, false};
+
+	/* Initial all 4 layer's gpio */
+	for ( i = 0; i < 4; ++i )
+	{
+		if ( gpio_initialized_table[i] )
+		{
+			/* Already initialized */
+			continue;
+		}
+
+		dev = device_get_binding(gpio_group_dev_name_table	\
+				[door_gpio_table[i][index].gpio_group]);
+		pin_mask = 0;
+
+		/* Get the same group pins into pin_mask */
+		for ( j = i; j < 4; ++j )
+		{
+			/**
+			 * The index j's gpio name is the same as current dev,
+			 * initial them at onece.
+			 * */
+			if ( door_gpio_table[i][index].gpio_group ==
+					door_gpio_table[j][index].gpio_group )
+			{
+				/* Configure current gpio as interrupt input */
+				gpio_comm_conf(&door_gpio_table[j][index],
+						GPIO_DIR_IN | GPIO_INT | GPIO_INT_DEBOUNCE |	\
+						GPIO_PUD_PULL_UP | GPIO_INT_EDGE | GPIO_INT_ACTIVE_LOW);
+
+				/* Add new pin number into pin_mask */
+				pin_mask |= BIT(door_gpio_table[j][index].gpio_pin);
+
+				/* Skip current pin on initialization */
+				gpio_initialized_table[j] = true;
+			}
+		}
+
+		/* Initial callback */
+		switch ( index )
+		{
+			/* Open detector */
+			case 2:
+				gpio_init_callback(&gpio_cb[gpio_cb_number],
+								   door_open_in_position_irq_cb,
+								   pin_mask);
+				break;
+			/* Close detector */
+			case 3:
+				gpio_init_callback(&gpio_cb[gpio_cb_number],
+								   door_close_in_position_irq_cb,
+								   pin_mask);
+				break;
+			/* On door infrared detector */
+			case 4:
+				gpio_init_callback(&gpio_cb[gpio_cb_number],
+								   door_infrared_irq_cb,
+								   pin_mask);
+				break;
+			default:
+				/* Error */
+				break;
+		}
+
+		/* Add one particular callback structure */
+		gpio_add_callback(dev, &gpio_cb[gpio_cb_number]);
+
+		/* Increase group numbers */
+		gpio_cb_number++;
+	}
+}
+
+/**
+ * @brief Wrapper function of door gpio irq initial
+ * */
+static inline void door_irq_init(void)
+{
+	door_comm_irq_init(2);
+	door_comm_irq_init(3);
+	door_comm_irq_init(4);
+}
+
+/**
  * @brief This function is to check the door open state, and stop opening
  *		  operation.
  *
@@ -133,6 +429,9 @@ static int8_t door_wait_open(uint8_t layer)
 
 	/* Stop door's motor after fully opened or timeout */
 	door_stop_write_gpio(layer);
+
+	/* Disable open in position irq */
+	door_open_in_position_irq_disable(layer);
 
 	if ( i >= wait_time_in_sec * 10 )
 	{
@@ -267,8 +566,25 @@ retry:
  * */
 int8_t door_open(uint8_t layer)
 {
+	int8_t rc;
+
+	/* Enable open in position irq */
+	door_open_in_position_irq_enable(layer);
+
+	/* Start to open the door */
 	door_open_write_gpio(layer);
-	return door_wait_open(layer);
+
+	/* Wait door fully opened */
+	rc = door_wait_open(layer);
+	if ( 0 != rc )
+	{
+		door_status[layer - 1] = false;
+	}
+	else
+	{
+		door_status[layer - 1] = true;
+	}
+	return rc;
 }
 
 /**
@@ -284,8 +600,28 @@ int8_t door_open(uint8_t layer)
  * */
 int8_t door_close(uint8_t layer)
 {
+	int8_t rc;
+
+	/* Enable close in position irq */
+	door_close_in_position_irq_enable(layer);
+
+	/* Enable on door infrared irq */
+	door_infrared_irq_enable(layer);
+
+	/* Start to close the door */
 	door_close_write_gpio(layer);
-	return door_wait_close(layer);
+
+	/* Wait door fully closed */
+	rc = door_wait_close(layer);
+	if ( 0 != rc )
+	{
+		door_status[layer - 1] = false;
+	}
+	else
+	{
+		door_status[layer - 1] = true;
+	}
+	return rc;
 }
 
 /**
@@ -345,7 +681,7 @@ int8_t door_init(void)
 	struct k_thread	door_init_thread[4];
 
 	/**
-	 * The thread API kernel provide did not support
+	 * The thread API that the kernel provide did not support
 	 * any value return, we will pass a pointer to
 	 * thread entry and get some status data.
 	 *

@@ -6,6 +6,7 @@ extern "C" {
 #endif /* __cplusplus */
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /**
  * @brief Door hardware initial function
@@ -14,6 +15,13 @@ extern "C" {
  *		   <0 Initial Failed
  * */
 int8_t door_init(void);
+
+/**
+ * @brief Get door functionality status
+ *
+ * @return pointer point to door status array
+ * */
+const bool* door_get_status(void);
 
 /**
  * @brief Public wrapper function of door open
