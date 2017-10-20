@@ -252,8 +252,10 @@ static bool axle_set_rotate_enable_disable(uint8_t enable)
  * @brief Callback function when axle rotate to certain position
  *
  * @param dev Gpio device pointer
- *		  gpio_cb Gpio callback structure
- *		  pins Mask of pins that trigger the callback
+ *
+ * @param gpio_cb Gpio callback structure
+ *
+ * @param pins Mask of pins that trigger the callback
  * */
 static void axle_in_position_irq_cb(struct device *dev,
 									struct gpio_callback *gpio_cb,
@@ -277,15 +279,14 @@ static void axle_in_position_irq_cb(struct device *dev,
 	 * we only have to disable the rotate and disable the gpio interrupt.
 	 * */
 
-	uint32_t value, pin = 0;
+	uint32_t pin = 0;
 
 	/* Parse pin mask to pin number */
-	while ( pins )
+	while ( 1 != pins )
 	{
 		pins >>= 1;
 		pin++;
 	}
-	pin--;
 
 	/* Disable gpio interrupt */
 	gpio_pin_disable_callback(dev, pin);
@@ -301,7 +302,8 @@ static void axle_in_position_irq_cb(struct device *dev,
  * */
 static void axle_in_position_irq_enable(uint8_t position)
 {
-	struct device *dev = device_get_binding(gpio_group_dev_name_table[axle_gpio_table[position - 1].gpio_group]);
+	struct device *dev = device_get_binding(gpio_group_dev_name_table	\
+			[axle_gpio_table[position - 1].gpio_group]);
 	gpio_pin_enable_callback(dev, axle_gpio_table[position - 1].gpio_pin);
 }
 
@@ -312,7 +314,8 @@ static void axle_in_position_irq_enable(uint8_t position)
  * */
 static void axle_in_position_irq_disable(uint8_t position)
 {
-	struct device *dev = device_get_binding(gpio_group_dev_name_table[axle_gpio_table[position - 1].gpio_group]);
+	struct device *dev = device_get_binding(gpio_group_dev_name_table	\
+			[axle_gpio_table[position - 1].gpio_group]);
 	gpio_pin_disable_callback(dev, axle_gpio_table[position - 1].gpio_pin);
 }
 
@@ -325,7 +328,10 @@ static void axle_in_position_irq_init(void)
 {
 	uint8_t		i, j;
 	uint32_t	pin_mask;
-	bool		gpio_initialized_table[7] = {false, false, false, false, false, false, false};
+	bool		gpio_initialized_table[7] =
+	{
+		false, false, false, false, false, false, false
+	};
 	struct		device *dev = NULL;
 
 	static struct	gpio_callback gpio_cb[7];
@@ -353,17 +359,23 @@ static void axle_in_position_irq_init(void)
 			continue;
 		}
 
-		dev = device_get_binding(gpio_group_dev_name_table[axle_gpio_table[i].gpio_group]);
+		dev = device_get_binding(gpio_group_dev_name_table	\
+				[axle_gpio_table[i].gpio_group]);
 		pin_mask = 0;
 
 		/* Get the same group pins into pin_mask */
-		for ( j = i, pin_mask = 0; j < 7; ++j )
+		for ( j = i; j < 7; ++j )
 		{
-			/* The index j's gpio name is the same as current dev, initial them at onece. */
+			/**
+			 * The index j's gpio name is the same as current dev,
+			 * initial them at onece.
+			 * */
 			if ( axle_gpio_table[i].gpio_group == axle_gpio_table[j].gpio_group )
 			{
 				/* Configure current gpio as intrrupt input */
-				gpio_comm_conf(&axle_gpio_table[j], GPIO_DIR_IN | GPIO_INT | GPIO_INT_DEBOUNCE | GPIO_PUD_PULL_UP | GPIO_INT_EDGE | GPIO_INT_ACTIVE_LOW);
+				gpio_comm_conf(&axle_gpio_table[j],
+						GPIO_DIR_IN | GPIO_INT | GPIO_INT_DEBOUNCE |	\
+						GPIO_PUD_PULL_UP | GPIO_INT_EDGE | GPIO_INT_ACTIVE_LOW);
 
 				/* Add new pin number into pin_mask */
 				pin_mask |= BIT(axle_gpio_table[j].gpio_pin);
@@ -382,7 +394,6 @@ static void axle_in_position_irq_init(void)
 		/* Increase group numbers */
 		gpio_cb_number++;
 	}
-	return ;
 }
 
 /**
@@ -534,6 +545,18 @@ static int8_t axle_rotate_init(uint8_t direction)
 	/* Set direction signal */
 	axle_set_rotate_direction(direction);
 
+	/* Unlock the break */
+	axle_set_lock_unlock(0);
+
+	/* Wait the lock fully unlocked */
+	k_sleep(50);
+
+	/* Enable gpio irq */
+	for ( i = 1; i <= 7; ++i )
+	{
+		axle_in_position_irq_enable(i);
+	}
+
 	/* Enable axle */
 	axle_set_rotate_enable_disable(1);
 
@@ -551,6 +574,18 @@ static int8_t axle_rotate_init(uint8_t direction)
 
 	/* Disable axle */
 	axle_set_rotate_enable_disable(0);
+
+	/* Wait the axle fully stoped */
+	k_sleep(50);
+
+	/* Lock the axle */
+	axle_set_lock_unlock(1);
+
+	/* Disable all position gpio irq */
+	for ( i = 1; i <= 7; ++i )
+	{
+		axle_in_position_irq_disable(i);
+	}
 
 	/* Check for timeout */
 	if ( i >= wait_time_in_sec )
