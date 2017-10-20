@@ -1,3 +1,15 @@
+/**
+ * Copyright (c) 2017 Shenzhen Trylong Intelligence Technology Co., Ltd. All rights reserved.
+ *
+ * @file door.h
+ *
+ * @brief Main door of vrbox API
+ *
+ * @author Ding Tao <miyatsu@qq.com>
+ *
+ * @date 17:35:08 October 20, 2017 GTM+8
+ *
+ * */
 #ifndef DOOR_H
 #define DOOR_H
 
