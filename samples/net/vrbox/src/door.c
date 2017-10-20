@@ -56,16 +56,16 @@ static struct gpio_group_pin_t door_gpio_table[4][5] =
 		{GPIO_GROUP_D,  8}, {GPIO_GROUP_E, 15}, {GPIO_GROUP_E, 14}
 	},
 	{
-		{GPIO_GROUP_E,  8}, {GPIO_GROUP_E,  9},
-		{GPIO_GROUP_E,  9}, {GPIO_GROUP_E, 10}, {GPIO_GROUP_E, 12}
+		{GPIO_GROUP_E, 13}, {GPIO_GROUP_E, 12},
+		{GPIO_GROUP_E, 11}, {GPIO_GROUP_E, 10}, {GPIO_GROUP_E,  9}
 	},
 	{
-		{GPIO_GROUP_E, 13}, {GPIO_GROUP_E, 14},
-		{GPIO_GROUP_E, 11}, {GPIO_GROUP_E, 12}, {GPIO_GROUP_D,  9}
+		{GPIO_GROUP_E,  8}, {GPIO_GROUP_E,  7},
+		{GPIO_GROUP_D,  1}, {GPIO_GROUP_D,  0}, {GPIO_GROUP_D, 15}
 	},
 	{
-		{GPIO_GROUP_D, 10}, {GPIO_GROUP_D, 15},
-		{GPIO_GROUP_E, 13}, {GPIO_GROUP_E, 14}, {GPIO_GROUP_E,  7}
+		{GPIO_GROUP_D, 14}, {GPIO_GROUP_D, 15},
+		{GPIO_GROUP_E,  0}, {GPIO_GROUP_G, 11}, {GPIO_GROUP_G, 13}
 	}
 };
 
@@ -267,6 +267,11 @@ static void door_close_in_position_irq_cb(struct device *dev,
 	door_stop_write_gpio(layer);
 }
 
+static volatile bool door_on_door_infrared_detected_flag[4] =
+{
+	false, false, false, false
+};
+
 /**
  * @brief Callback function, called when the on door infrared detecte
  *		  something while the door is at closing stage.
@@ -288,6 +293,9 @@ static void door_infrared_irq_cb(struct device *dev,
 		/* Error */
 		return ;
 	}
+
+	/* Mark jamed onece */
+	door_on_door_infrared_detected_flag[layer - 1] = true;
 
 	/* Disable the on door infrared detector */
 	door_infrared_irq_disable(layer);
@@ -311,7 +319,7 @@ static void door_infrared_irq_cb(struct device *dev,
  * */
 static void door_comm_irq_init(uint8_t index)
 {
-	static struct gpio_callback gpio_cb[9];
+	static struct gpio_callback gpio_cb[12];
 	static uint8_t gpio_cb_number = 0;
 
 	uint8_t i, j;
@@ -352,6 +360,7 @@ static void door_comm_irq_init(uint8_t index)
 
 				/* Skip current pin on initialization */
 				gpio_initialized_table[j] = true;
+				k_sleep(10);
 			}
 		}
 
@@ -394,8 +403,13 @@ static void door_comm_irq_init(uint8_t index)
  * */
 static inline void door_irq_init(void)
 {
+	k_sleep(10);
 	door_comm_irq_init(2);
+
+	k_sleep(10);
 	door_comm_irq_init(3);
+
+	k_sleep(10);
 	door_comm_irq_init(4);
 }
 
@@ -413,6 +427,7 @@ static int8_t door_wait_open(uint8_t layer)
 {
 	uint8_t i, wait_time_in_sec		= CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC;
 	uint32_t door_not_in_position	= 1;	/* Default not in position */
+
 	for ( i = 0; i < wait_time_in_sec * 10; ++i )
 	{
 		/**
@@ -473,7 +488,7 @@ static int8_t door_wait_close(uint8_t layer)
 	uint8_t retry_times = 0;
 
 	/* Time resolution when close the door */
-	uint8_t i, wait_time_in_sec = CONFIG_APP_DOOR_CLOSE_TIMEOUT_IN_SEC;
+	uint8_t i, wait_close_time_in_sec = CONFIG_APP_DOOR_CLOSE_TIMEOUT_IN_SEC;
 
 	/**
 	 * 1 means the door is not at close state
@@ -481,64 +496,83 @@ static int8_t door_wait_close(uint8_t layer)
 	 * */
 	uint32_t door_not_in_position;
 
-	/**
-	 * 1 means the door is not blocking by foreign maters
-	 * 0 means the door is blocking by foreign maters
-	 * */
-	uint32_t door_not_blocking;
+	int8_t rc;
 
 retry:
-	if ( 3 <= retry_times )
+
+	if ( retry_times >= 3 )
 	{
-		/* No more retry after trying three tiems */
 		return -2;
 	}
-	else if ( 0 != retry_times )
+
+	for ( i = 0; i < wait_close_time_in_sec * 10; ++i )
 	{
-		/* Door infrared detected, retry entered */
-
-		/* Open the door, no mater if it is fully opened */
-		int8_t door_open(uint8_t);
-		door_open(layer);
-
-		/**
-		 * Wait for three seconds, we assume the foreign mater
-		 * that blocking the door will no longer exists
-		 * */
-		k_sleep(3000);
-
-		/* Retry to close the door */
-		door_close_write_gpio(layer);
-	}
-
-	door_not_in_position	= 1;		/* Default not in position */
-	door_not_blocking		= 1;		/* Default not blocking */
-	for ( i = 0; i < wait_time_in_sec * 10; ++i )
-	{
-		gpio_comm_read(&door_gpio_table[layer-1][3], &door_not_in_position);
+		/* Door close state */
+		gpio_comm_read(&door_gpio_table[layer - 1][3], &door_not_in_position);
 		if ( !door_not_in_position )
 		{
-			break;
+			/* Door fully closed */
+			break ;
 		}
 
-		/**
-		 * Read value from on door infrared detector, if there are foreign
-		 * maters blocking the door, retry to close the door
-		 * */
-		gpio_comm_read(&door_gpio_table[layer-1][4], &door_not_blocking);
-		if ( !door_not_blocking )
+		/* Door still not closed */
+
+		/* Interrupt detected */
+		if ( door_on_door_infrared_detected_flag[layer - 1] )
 		{
-			++retry_times;
+			/* Clear infrared irq flag */
+			door_on_door_infrared_detected_flag[layer - 1] = false;
+
+			/**
+			 * The door will automatic open and enable nessesary IRQs
+			 * when the infrared irq handler is trigger by irq.
+			 *
+			 * Wait door fully opened
+			 * */
+			rc = door_wait_open(layer);
+			if ( 0 != rc )
+			{
+				return rc;
+			}
+
+			/**
+			 * Door has fully opened,
+			 * wait for three seconds and retry to close the door
+			 * */
+			k_sleep(3000);
+
+			retry_times++;
+
+			/* After door has fully opened, no irq is enabled */
+
+			/* Enable close in position irq */
+			door_close_in_position_irq_enable(layer);
+
+			/* Enable on door infrared detector irq */
+			door_infrared_irq_enable(layer);
+
+			/* Start to close */
+			door_close_write_gpio(layer);
+
 			goto retry;
 		}
 
+		/**
+		 * Door not close, and no jam by other things
+		 * */
 		k_sleep(100);
 	}
 
-	/* Stop door's motor after fully closed or timeout */
+	/* Stop rotate the door when timeout or fully closed */
 	door_stop_write_gpio(layer);
 
-	if ( i >= wait_time_in_sec * 10 )
+	/* Disable door close in position irq */
+	door_close_in_position_irq_disable(layer);
+
+	/* Disable on door infrared detector irq */
+	door_infrared_irq_disable(layer);
+
+	if ( i >= wait_close_time_in_sec * 10 )
 	{
 		/* Wait door close timeout */
 		gpio_comm_read(&door_gpio_table[layer-1][2], &door_not_in_position);
@@ -547,6 +581,7 @@ retry:
 			/* Half close */
 			return -1;
 		}
+
 		/* Never closed */
 		return -3;
 	}
@@ -665,18 +700,19 @@ static void door_close_thread_entry_point(void *arg1, void *arg2, void *arg3)
 /**
  * Thread stack definition
  *
- * This stack name of door_init_thread_stack
- * will reuse by door_open_close function
+ * This stack name of door_comm_thread_stack
+ * will reuse by door_admin_open()/door_admin_close() function
  * */
-static K_THREAD_STACK_ARRAY_DEFINE(door_init_thread_stack, 4, CONFIG_APP_DOOR_INIT_THREAD_STACK_SIZE);
+static K_THREAD_STACK_ARRAY_DEFINE(door_comm_thread_stack, 4,
+		CONFIG_APP_DOOR_INIT_THREAD_STACK_SIZE);
 
 /**
- * @brief Door hardware initial function
+ * @brief Close all four doors, and can be use as hardware initial function
  *
  * @return  0 Initial OK
  *		   <0 Initial Failed
  * */
-int8_t door_init(void)
+int8_t door_admin_close(void)
 {
 	struct k_thread	door_init_thread[4];
 
@@ -702,8 +738,8 @@ int8_t door_init(void)
 	for ( i = 0; i < 4; ++i )
 	{
 		k_thread_create( &door_init_thread[i],
-			door_init_thread_stack[i],
-			K_THREAD_STACK_SIZEOF(door_init_thread_stack[i]),
+			door_comm_thread_stack[i],
+			K_THREAD_STACK_SIZEOF(door_comm_thread_stack[i]),
 			door_close_thread_entry_point,
 			(void *)i, (void *)((uint32_t)&door_init_status + i), NULL,
 			0, 0, K_NO_WAIT );
@@ -773,8 +809,8 @@ int8_t door_admin_open(void)
 	for ( i = 0; i < 4; ++i )
 	{
 		k_thread_create( &door_open_thread[i],
-			door_init_thread_stack[i],
-			K_THREAD_STACK_SIZEOF(door_init_thread_stack[i]),
+			door_comm_thread_stack[i],
+			K_THREAD_STACK_SIZEOF(door_comm_thread_stack[i]),
 			door_open_thread_entry_point,
 			(void *)i, (void *)((uint32_t)&door_open_status + i), NULL,
 			0, 0, K_NO_WAIT );
@@ -806,14 +842,38 @@ int8_t door_admin_open(void)
 }
 
 /**
- * @brief Close all 4 doors
- *
- * @return  0, close success
- *		   <0, close error
+ * @brief Initial GPIO related functions
  * */
-int8_t door_admin_close(void)
+void door_gpio_init(void)
 {
-	return door_init();
+	uint8_t i, j;
+	uint32_t temp;
+	for ( i = 0; i < 4; ++i )
+	{
+		gpio_comm_conf(&door_gpio_table[i][0], GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
+		gpio_comm_conf(&door_gpio_table[i][1], GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
+	}
+	for ( i = 0; i < 4; ++i )
+	{
+		for ( j = 0; j < 5; ++j )
+		{
+			gpio_comm_read(&door_gpio_table[i][j], &temp);
+		}
+	}
+}
+
+/**
+ * @brief Initial all initialize of door functions, include set gpio mode
+ *		  and close all four doors etc.
+ *
+ * @return -1, initial error
+ *			0, initial ok
+ * */
+int8_t door_init(void)
+{
+	door_irq_init();
+	door_gpio_init();
+	return door_admin_close();
 }
 
 #ifdef CONFIG_APP_DOOR_FACTORY_TEST
@@ -829,22 +889,24 @@ int8_t door_factory_test(void)
 
 void door_debug(void)
 {
+	door_init();
+	printk("Init done!\n");
 	while (1)
 	{
-		k_sleep(3000);
-		if( 0 == door_open(1) )	/* Open first layer's door */
+		printk("Start to open...\n");
+		if( 0 == door_open(2) )	/* Open first layer's door */
 		{
 			printk("Open OK\n");
 		}
 		else
 		{
 			printk("Open Failed\n");
-			continue;
 		}
 
 		k_sleep(3000);
 
-		if ( 0 == door_close(1) )
+		printk("Start to close...\n");
+		if ( 0 == door_close(2) )
 		{
 			printk("Close OK\n");
 		}
@@ -852,7 +914,6 @@ void door_debug(void)
 		{
 			printk("Close Failed\n");
 			door_stop_write_gpio(1);
-			continue;
 		}
 		k_sleep(3000);
 	}
