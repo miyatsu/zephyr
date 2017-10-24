@@ -8,7 +8,6 @@
 #include <logging/sys_log.h>
 
 #include <kernel.h>
-#include <gpio.h>
 #include <device.h>
 #include <misc/__assert.h>
 #include <misc/util.h>
@@ -246,17 +245,6 @@ static void eth_isr(void *arg)
 	HAL_ETH_IRQHandler(heth);
 }
 
-void HAL_ETH_MspInit(ETH_HandleTypeDef *heth_handle)
-{
-	__ASSERT_NO_MSG(heth_handle != NULL);
-
-	struct device *dev = device_get_binding("GPIOD");
-
-	gpio_pin_configure(dev, 3, GPIO_DIR_OUT);
-	gpio_pin_write(dev, 3, 0);
-	k_sleep(100);
-	gpio_pin_write(dev, 3, 1);
-}
 
 void HAL_ETH_RxCpltCallback(ETH_HandleTypeDef *heth_handle)
 {
