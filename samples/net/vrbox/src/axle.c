@@ -28,16 +28,16 @@
 /**
  * P4:
  * -----------------------
- * | PB9    1 |  2  PB8	 |	Not suggest using PA8 as GPIO
- * | PB7    3 |  4  PB6	 |	Check
- * | PB5    5 |  6  PB4  |	Check
- * | PB3    7 |  8  PG15 |
+ * | PB9    1 |  2  PB8	 |	Not suggest using as GPIO
+ * | PB7    3 |  4  PB6	 |	Check			Used by headset
+ * | PB5    5 |  6  PB4  |	Check			Used by headset
+ * | PB3    7 |  8  PG15 |	PB3 PWM_2_2		Used by headset (PG15 Only)
  * | PG14   9 | 10  PG13 |	ETH
  * | PG12  11 | 12  PG11 |	PG11 ETH
- * | PG10  13 | 14  PG9  |
- * | PD7   15 | 16  PD6  |
- * | PD5   17 | 18  PD4  |
- * | PD3   19 | 20  PD2  |
+ * | PG10  13 | 14  PG9  |	Not suggest using as GPIO
+ * | PD7   15 | 16  PD6  |					Used by door
+ * | PD5   17 | 18  PD4  |					Used by door
+ * | PD3   19 | 20  PD2  |	PD3 ETH
  * | PC12  21 | 22  PC11 |
  * | PC10  23 | 24  PA15 |
  * | PA14  25 | 26  PA13 |
@@ -56,17 +56,17 @@
 
 static struct gpio_group_pin_t axle_gpio_table[] =
 {
-	{GPIO_GROUP_D, 14},		/* Axle position start*/
-	{GPIO_GROUP_D, 15},
-	{GPIO_GROUP_D,  0},
-	{GPIO_GROUP_D,  1},
-	{GPIO_GROUP_E,  7},
-	{GPIO_GROUP_E,  8},
-	{GPIO_GROUP_E,  9},		/* Axle position end */
+	{GPIO_GROUP_G,  2},		/* Axle position start*/
+	{GPIO_GROUP_G,  3},
+	{GPIO_GROUP_G,  4},
+	{GPIO_GROUP_G,  5},
+	{GPIO_GROUP_G,  6},
+	{GPIO_GROUP_G,  7},
+	{GPIO_GROUP_G,  8},		/* Axle position end */
 
 	{GPIO_GROUP_B,  3},		/* PWM output */
-	{GPIO_GROUP_E, 10},		/* Axle rotate direction */
-	{GPIO_GROUP_E, 11},		/* Stepper motor break */
+	{GPIO_GROUP_D,  2},		/* Axle rotate direction */
+	{GPIO_GROUP_G, 12}		/* Stepper motor break */
 };
 
 /* Axle functionality status, true means work fine, false means axle is broken */
@@ -455,7 +455,7 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	axle_in_position_irq_enable(destination_position);
 
 	/* Unlock the axle break */
-	axle_set_lock_unlock(1);
+	axle_set_rotate_lock_unlock(1);
 
 	/* Wait the break fully unlocked */
 	k_sleep(50);
@@ -483,7 +483,7 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	k_sleep(50);
 
 	/* Lock the axle break */
-	axle_set_lock_unlock(0);
+	axle_set_rotate_lock_unlock(0);
 
 	/* Disable destination position's gpio irq */
 	axle_in_position_irq_disable(destination_position);
