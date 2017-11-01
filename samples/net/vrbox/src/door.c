@@ -20,6 +20,10 @@
 #include <misc/printk.h>
 #endif /* CONFIG_APP_DOOR_DEBUG */
 
+#define	SYS_LOG_DOMAIN	"door"
+#define	SYS_LOG_LEVEL	SYS_LOG_LEVEL_DEBUG
+#include <logging/sys_log.h>
+
 #include "config.h"
 #include "gpio_comm.h"
 
@@ -64,8 +68,8 @@ static struct gpio_group_pin_t door_gpio_table[4][5] =
 		{GPIO_GROUP_D,  1}, {GPIO_GROUP_D,  0}, {GPIO_GROUP_D, 15}
 	},
 	{
-		{GPIO_GROUP_D, 14}, {GPIO_GROUP_D, 15},
-		{GPIO_GROUP_E,  0}, {GPIO_GROUP_G, 11}, {GPIO_GROUP_G, 13}
+		{GPIO_GROUP_D, 14}, {GPIO_GROUP_D,  7},
+		{GPIO_GROUP_D,  6}, {GPIO_GROUP_D,  5}, {GPIO_GROUP_D,  4}
 	}
 };
 
@@ -133,7 +137,7 @@ static void door_stop_write_gpio(uint8_t layer)
  *				3 means close detector
  *				4 means on door infrared detector
  * */
-uint8_t door_irq_to_layer(struct device *dev, uint32_t pins, uint8_t index)
+static uint8_t door_irq_to_layer(struct device *dev, uint32_t pins, uint8_t index)
 {
 	uint8_t i;
 	uint32_t pin = 0;
@@ -142,7 +146,8 @@ uint8_t door_irq_to_layer(struct device *dev, uint32_t pins, uint8_t index)
 	/**
 	 * Parse pin mask to pin number
 	 *
-	 * FIXME: Two or more irq comming, the pins will not be the power of two
+	 * FIXME: Two or more irq comming with one callback called,
+	 * The pins will not be the power of two.
 	 * */
 	while ( 1 != pins )
 	{
@@ -265,6 +270,7 @@ static void door_close_in_position_irq_cb(struct device *dev,
 
 	/* Stop closing the door */
 	door_stop_write_gpio(layer);
+	//printk("%s called\n", __func__);
 }
 
 static volatile bool door_on_door_infrared_detected_flag[4] =
@@ -502,6 +508,15 @@ retry:
 
 	if ( retry_times >= 3 )
 	{
+		/* Stop rotate the door when timeout or fully closed */
+		door_stop_write_gpio(layer);
+
+		/* Disable door close in position irq */
+		door_close_in_position_irq_disable(layer);
+
+		/* Disable on door infrared detector irq */
+		door_infrared_irq_disable(layer);
+
 		return -2;
 	}
 
@@ -608,15 +623,18 @@ int8_t door_open(uint8_t layer)
 
 	/* Start to open the door */
 	door_open_write_gpio(layer);
+	SYS_LOG_DBG("opening layer %d, start to wait door fully opened...", layer);
 
 	/* Wait door fully opened */
 	rc = door_wait_open(layer);
 	if ( 0 != rc )
 	{
+		SYS_LOG_ERR("open error at layer %d, return value of %d", layer, rc);
 		door_status[layer - 1] = false;
 	}
 	else
 	{
+		SYS_LOG_DBG("open ok at layer %d", layer);
 		door_status[layer - 1] = true;
 	}
 	return rc;
@@ -645,15 +663,18 @@ int8_t door_close(uint8_t layer)
 
 	/* Start to close the door */
 	door_close_write_gpio(layer);
+	SYS_LOG_DBG("closing layer %d, start to wait door fully closed...", layer);
 
 	/* Wait door fully closed */
 	rc = door_wait_close(layer);
 	if ( 0 != rc )
 	{
+		SYS_LOG_ERR("close error at layer %d, return value of %d", layer, rc);
 		door_status[layer - 1] = false;
 	}
 	else
 	{
+		SYS_LOG_DBG("close ok at layer %d", layer);
 		door_status[layer - 1] = true;
 	}
 	return rc;
@@ -668,16 +689,19 @@ int8_t door_close(uint8_t layer)
  * We decide to make it as a single work thread, use 4 thread to do
  * the door open job.
  *
- * @param arg1, Door number
- *		  arg2, Return status
- *		  arg3, Unused
+ * @param arg1, Door number's pointer, input as [1-4]
+ *		  arg2, Sem use to sync thread
+ *		  arg3, Return status
  * */
 static void door_open_thread_entry_point(void *arg1, void *arg2, void *arg3)
 {
-	uint8_t layer = (uint8_t)arg1;
-	int8_t *rc = (int8_t *)arg2;
+	int32_t *		layer	= (int32_t *)arg1;
+	struct k_sem *	sem		= (struct k_sem *)arg2;
+	int32_t *		rc		= (int32_t *)arg3;
 
-	*rc = door_open(layer);
+	*rc = door_open(*layer);
+
+	k_sem_give(sem);
 }
 
 /**
@@ -685,16 +709,19 @@ static void door_open_thread_entry_point(void *arg1, void *arg2, void *arg3)
  *
  * Same as above function: door_open_thread_entry_point()
  *
- * @param arg1, Door number
- *		  arg2, Return status
- *		  arg3, Unused
+ * @param arg1, Door number's pointer, input as [1-4]
+ *		  arg2, Sem use to sync thread
+ *		  arg3, Return status
  * */
 static void door_close_thread_entry_point(void *arg1, void *arg2, void *arg3)
 {
-	uint8_t layer = (uint8_t)arg1;
-	int8_t *rc = (int8_t *)arg2;
+	int32_t *		layer	= (int32_t *)arg1;
+	struct k_sem *	sem		= (struct k_sem *)arg2;
+	int32_t *		rc		= (int32_t *)arg3;
 
-	*rc = door_close(layer);
+	*rc = door_close(*layer);
+
+	k_sem_give(sem);
 }
 
 /**
@@ -716,23 +743,17 @@ int8_t door_admin_close(void)
 {
 	struct k_thread	door_init_thread[4];
 
-	/**
-	 * The thread API that the kernel provide did not support
-	 * any value return, we will pass a pointer to
-	 * thread entry and get some status data.
-	 *
-	 * Door initial status will store here
-	 *
-	 * Initial value of door_init_status:
-	 * -------------------------------------
-	 * | byte 1 | byte 2 | byte 3 | byte 4 |
-	 * -------------------------------------
-	 * |   -4   |   -4   |   -4   |   -4   |
-	 * -------------------------------------
-	 * */
-	uint32_t door_init_status = 0xFCFCFCFC;
+	int32_t layer[4] = {1, 2, 3, 4};
+	int32_t thread_rc[4] = {0xFC, 0xFC, 0xFC, 0xFC};
 
-	uint16_t i;
+	int32_t rc;
+
+	uint8_t i;
+
+	/* Used to sync this thread and four init thread  */
+	struct k_sem sem;
+
+	k_sem_init(&sem, 0, 4);
 
 	/* Start to init doors */
 	for ( i = 0; i < 4; ++i )
@@ -741,30 +762,29 @@ int8_t door_admin_close(void)
 			door_comm_thread_stack[i],
 			K_THREAD_STACK_SIZEOF(door_comm_thread_stack[i]),
 			door_close_thread_entry_point,
-			(void *)i, (void *)((uint32_t)&door_init_status + i), NULL,
+			(void *)&layer[i], (void *)&sem, (void*)&thread_rc[i],
 			0, 0, K_NO_WAIT );
 			/* Prio: 0, Flag: 0, Delay: No delay */
 	}
 
-	/* Wait door to be initlized */
-	for ( i = 0; i < CONFIG_APP_DOOR_INIT_TIMEOUT_IN_SEC * 10 + 2; ++i )
+	/* Wait all four initial thread return */
+	for ( i = 0; i < 4; ++i )
 	{
-		/* All 4 doors initial success */
-		if ( 0 == door_init_status )
+		rc = k_sem_take(&sem, K_SECONDS(CONFIG_APP_DOOR_INIT_TIMEOUT_IN_SEC));
+		if ( 0 != rc )
 		{
-			break;
+			/* Timeout or error happened */
+			return -1;
 		}
-
-		/* Initial not complete, wait more 100ms */
-		k_sleep(100);
 	}
 
-	/* No need to abort the thread, it will return automaticly */
-
-	if ( i < CONFIG_APP_DOOR_INIT_TIMEOUT_IN_SEC * 10 + 2 )
+	/* Check initial return value */
+	for ( i = 0; i < 4; ++i )
 	{
-		/* Initial doors success */
-		return 0;
+		if ( 0 != thread_rc[i] )
+		{
+			return -1;
+		}
 	}
 
 	/**
@@ -773,8 +793,8 @@ int8_t door_admin_close(void)
 	 * ( *(int8_t *)((int32_t)&door_init_status + i) )
 	 * */
 
-	/* Initial doors failed */
-	return -1;
+	/* Initial doors ok */
+	return 0;
 }
 
 /**
@@ -787,23 +807,16 @@ int8_t door_admin_open(void)
 {
 	struct k_thread door_open_thread[4];
 
-	/**
-	 * The thread API kernel provide did not support
-	 * any value return, we will pass a pointer to
-	 * thread entry and get some status data.
-	 *
-	 * Door open status will store here
-	 *
-	 * Initial value of door_open_status:
-	 * -------------------------------------
-	 * | byte 1 | byte 2 | byte 3 | byte 4 |
-	 * -------------------------------------
-	 * |   -4   |   -4   |   -4   |   -4   |
-	 * -------------------------------------
-	 * */
-	uint32_t door_open_status = 0xFCFCFCFC;
+	int32_t layer[4] = {1, 2, 3, 4};
+	int32_t thread_rc[4] = {0xFC, 0xFC, 0xFC, 0xFC};
 
-	uint16_t i;
+	int32_t rc;
+
+	uint8_t i;
+
+	struct k_sem sem;
+
+	k_sem_init(&sem, 0, 4);
 
 	/* Start to open doors */
 	for ( i = 0; i < 4; ++i )
@@ -812,39 +825,36 @@ int8_t door_admin_open(void)
 			door_comm_thread_stack[i],
 			K_THREAD_STACK_SIZEOF(door_comm_thread_stack[i]),
 			door_open_thread_entry_point,
-			(void *)i, (void *)((uint32_t)&door_open_status + i), NULL,
+			(void *)&layer[i], (void *)&sem, (void*)&thread_rc[i],
 			0, 0, K_NO_WAIT );
 			/* Prio: 0, Flag: 0, Delay: No delay */
 	}
 
 	/* Wait door to opened */
-	for ( i = 0; i < CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC * 10 + 2; ++i )
+	for ( i = 0; i < 4; ++i )
 	{
-		/* All 4 doors open success */
-		if ( 0 == door_open_status )
+		rc = k_sem_take(&sem, K_SECONDS(CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC));
+		if ( 0 != rc )
 		{
-			break;
+			return -1;
 		}
-
-		/* All doors open not complete, wait more 100ms */
-		k_sleep(100);
 	}
 
-	/* No need to aboat the thread, it will return automaticly */
-
-	if ( i < CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC * 10 + 2 )
+	for ( i = 0; i < 4; ++i )
 	{
-		/* All doors open success */
-		return 0;
+		if ( 0 != thread_rc[i] )
+		{
+			return -1;
+		}
 	}
 
-	return -1;
+	return 0;
 }
 
 /**
  * @brief Initial GPIO related functions
  * */
-void door_gpio_init(void)
+static void door_gpio_init(void)
 {
 	uint8_t i, j;
 	uint32_t temp;
@@ -889,33 +899,51 @@ int8_t door_factory_test(void)
 
 void door_debug(void)
 {
+	uint8_t i;
+	printk("Door test start...\n");
 	door_init();
 	printk("Init done!\n");
+
+	printk("Start to test Admin open...\n");
+	if ( 0 == door_admin_open() )
+	{
+		printk("Admin open ok.\n");
+	}
+	else
+	{
+		printk("Admin open error.\n");
+	}
+	k_sleep(3000);
 	while (1)
 	{
-		printk("Start to open...\n");
-		if( 0 == door_open(2) )	/* Open first layer's door */
+		for ( i = 1; i <= 4; ++i )
 		{
-			printk("Open OK\n");
-		}
-		else
-		{
-			printk("Open Failed\n");
-		}
+			k_sleep(2000);
 
-		k_sleep(3000);
+			printk("Start to open door at layer %d\n", i);
+			k_sleep(1000);
+			if ( 0 == door_open(i) )
+			{
+				printk("Door on layer %d open ok.\n", i);
+			}
+			else
+			{
+				printk("Door on layer %d open error.\n", i);
+			}
 
-		printk("Start to close...\n");
-		if ( 0 == door_close(2) )
-		{
-			printk("Close OK\n");
+			k_sleep(2000);
+
+			printk("Start to close door at layer %d\n", i);
+			k_sleep(1000);
+			if ( 0 == door_close(i) )
+			{
+				printk("Door on layer %d close ok.\n", i);
+			}
+			else
+			{
+				printk("Door on layer %d close error.\n", i);
+			}
 		}
-		else
-		{
-			printk("Close Failed\n");
-			door_stop_write_gpio(1);
-		}
-		k_sleep(3000);
 	}
 	return ;
 }
