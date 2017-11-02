@@ -13,7 +13,6 @@
 #include <string.h>
 #include <errno.h>
 
-#include "controller.h"
 #include "config.h"
 
 
@@ -153,7 +152,7 @@ static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 				u16_t pkt_id, enum mqtt_packet type)
 {
 	// FIXME: Check for topic valiation.
-	controller_cmd_parse(msg->msg, msg->msg_len);
+	json_cmd_parse(msg->msg, msg->msg_len);
 	return 0;
 }
 
@@ -253,16 +252,19 @@ void vrbox_mqtt_init(void)
 	client_ctx.publish_data = "PUBLISH";
 
 
+	printk("Start to init mqtt\n");
 	rc = mqtt_init(&client_ctx.mqtt_ctx, MQTT_APP_PUBLISHER_SUBSCRIBER);
 	PRINT_RESULT("mqtt_init", rc);
 	if (rc != 0) {
 		return;
 	}
 
+	printk("start to connect tcp...\n");
 	/* No return until TCP is connected */
 	while ( 0 != mqtt_connect(&client_ctx.mqtt_ctx) );
 	printk("tcp server connected.\n");
 
+	printk("start to connect mqtt...\n");
 	/* No return until MQTT is connected */
 	while ( (!client_ctx.mqtt_ctx.connected) &&
 			(0 != mqtt_tx_connect(&client_ctx.mqtt_ctx, 
