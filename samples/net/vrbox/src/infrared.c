@@ -1,3 +1,15 @@
+/**
+ * Copyright (c) 2017 Shenzhen Trylong Intelligence Technology Co., Ltd. All rights reserved.
+ *
+ * @file infrared.c
+ *
+ * @brief In box infrared detector
+ *
+ * @author Ding Tao <miyatsu@qq.com>
+ *
+ * @date 10:29:55 October 18, 2017 GTM+8
+ *
+ * */
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -8,8 +20,8 @@
 #include <misc/printk.h>
 #endif /* CONFIG_APP_INFRARED_DEBUG */
 
-#include "gpio_comm.h"
 #include "config.h"
+#include "gpio_comm.h"
 
 /**
  * STM32F4_EXPLO On board IO map, P3:
@@ -45,43 +57,33 @@
 
 static struct gpio_group_pin_t infrared_gpio_table[4 * 7] =
 {
-	{GPIO_GROUP_E,  1}, {GPIO_GROUP_E,  0}, {GPIO_GROUP_E,  3}, {GPIO_GROUP_E,  2},
-	{GPIO_GROUP_E,  5}, {GPIO_GROUP_E,  4}, {GPIO_GROUP_C, 13}, {GPIO_GROUP_E,  6},
-	{GPIO_GROUP_F,  1}, {GPIO_GROUP_F,  0}, {GPIO_GROUP_F,  3}, {GPIO_GROUP_F,  2},
-	{GPIO_GROUP_F,  5}, {GPIO_GROUP_F,  4}, {GPIO_GROUP_F,  6}, {GPIO_GROUP_C,  3},
-	/* The pin PF6 and PC3 are NOT nearby to each other */
-	{GPIO_GROUP_A,  4}, {GPIO_GROUP_A,  0}, {GPIO_GROUP_A,  6}, {GPIO_GROUP_A,  5},
-	{GPIO_GROUP_F, 12}, {GPIO_GROUP_F, 11}, {GPIO_GROUP_F, 14}, {GPIO_GROUP_F, 13},
-	{GPIO_GROUP_G,  0}, {GPIO_GROUP_F, 15}, {GPIO_GROUP_B, 13}, {GPIO_GROUP_G,  1},
+	{GPIO_GROUP_E,  1}, {GPIO_GROUP_E,  0}, {GPIO_GROUP_E,  3}, {GPIO_GROUP_E,  2}, {GPIO_GROUP_E,  5}, {GPIO_GROUP_E,  4}, {GPIO_GROUP_C, 13},
+	{GPIO_GROUP_E,  6}, {GPIO_GROUP_F,  1}, {GPIO_GROUP_F,  0}, {GPIO_GROUP_F,  3}, {GPIO_GROUP_F,  2}, {GPIO_GROUP_F,  5}, {GPIO_GROUP_F,  4},
+	{GPIO_GROUP_F,  6}, {GPIO_GROUP_C,  3}, {GPIO_GROUP_A,  4}, {GPIO_GROUP_A,  0}, {GPIO_GROUP_A,  6}, {GPIO_GROUP_A,  5}, {GPIO_GROUP_F, 12},
+	{GPIO_GROUP_F, 11}, {GPIO_GROUP_F, 14}, {GPIO_GROUP_F, 13}, {GPIO_GROUP_G,  0}, {GPIO_GROUP_F, 15}, {GPIO_GROUP_B, 13}, {GPIO_GROUP_G,  1},
 };
 
-/* Box status, true means box not empty, false means box empty */
-static bool infrared_status[4][7] =
-{
-	{false, false, false, false, false, false, false},
-	{false, false, false, false, false, false, false},
-	{false, false, false, false, false, false, false},
-	{false, false, false, false, false, false, false}
-};
+/* Box status, 0 means box empty, 1 means box not empty */
+static uint8_t infrared_status[4 * 7];
 
-static bool infrared_is_box_empty(uint8_t, uint8_t);
+static bool infrared_is_box_empty(uint8_t layer, uint8_t position);
 
 /**
  * @brief Get infrared status array
  *
- * @return pointer of pointer point to infrared_status[4][7]
+ * @return pointer of pointer point to infrared_status[4 * 7]
  * */
-bool** infrared_get_status_array(void)
+uint8_t* infrared_get_status_array(void)
 {
 	uint8_t i, j;
 	for ( i = 0; i < 4; ++i )
 	{
 		for ( j = 0; j < 7; ++j )
 		{
-			infrared_status[i][j] = !infrared_is_box_empty(i, j);
+			infrared_status[i * 7 + j] = infrared_is_box_empty(i, j) ? 0 : 1;
 		}
 	}
-	return (bool**)infrared_status;
+	return (uint8_t *)infrared_status;
 }
 
 /**
@@ -131,8 +133,8 @@ static bool infrared_is_box_empty_read_gpio(uint8_t index)
  * */
 static bool infrared_is_box_empty(uint8_t layer, uint8_t axle_position)
 {
-	uint8_t infrared_detector_number = layer * 7 + axle_position;
-	return infrared_is_box_empty_read_gpio(infrared_detector_number);
+	uint8_t infrared_detector_index = layer * 7 + axle_position;
+	return infrared_is_box_empty_read_gpio(infrared_detector_index);
 }
 
 /**
@@ -141,8 +143,18 @@ static bool infrared_is_box_empty(uint8_t layer, uint8_t axle_position)
  * Some of the gpio need to drain its default input.
  * More detail please refer to the the comment within this function.
  * */
-void infrared_init(void)
+int8_t infrared_init(void)
 {
+	uint8_t i;
+
+	/**
+	 * Set all pins as gpio input, and pull up level when no input detected
+	 * */
+	for ( i = 0; i < 4 * 7; ++i )
+	{
+		gpio_comm_conf(&infrared_gpio_table[i], GPIO_DIR_IN | GPIO_PUD_PULL_UP);
+	}
+
 	/**
 	 * We need an initial function to flush the original data in GPIO.
 	 *
@@ -152,15 +164,43 @@ void infrared_init(void)
 	 * To prevent read wrong value from any other GPIOs, this initial
 	 * must be called before use any API we provide.
 	 * */
-	for ( uint8_t i = 0; i < 4 * 7; ++i )
+	for ( i = 0; i < 4 * 7; ++i )
 	{
 		infrared_is_box_empty_read_gpio(i);
 	}
+
+	return 0;
 }
+
+#ifdef CONFIG_APP_INFRARED_FACTORY_TEST
+
+int8_t infrared_factory_test(void)
+{
+	return 0;
+}
+
+#endif /* CONFIG_APP_INFRARED_FACTORY_TEST */
 
 #ifdef CONFIG_APP_INFRARED_DEBUG
 
 void infrared_debug(void)
+{
+	uint8_t i, j, temp;
+	uint8_t *array = infrared_get_status_array();
+	printk("infrared_status == %x, array == %x, infrared_table == %x\n", infrared_status, array, infrared_gpio_table);
+	for ( i = 0; i < 4; ++i )
+	{
+		for ( j = 0; j < 7; ++j )
+		{
+			printk("%d,", array[i * 7 + j]);
+		}
+		printk(" ");
+	}
+	printk("\n");
+	return ;
+}
+
+void infrared_debug_(void)
 {
 
 	uint32_t g1, g2, g3, g4;
