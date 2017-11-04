@@ -114,6 +114,14 @@ static void door_close_write_gpio(uint8_t layer)
 	gpio_comm_write(&door_gpio_table[layer-1][1], 1);
 }
 
+/**
+ * @brief Check door status, is the door fully opened ?
+ *
+ * @param layer Door number, [1-4] is expected
+ *
+ * @return true, the door at layer @layer is fully opened
+ *		   false, the door at layer @layer is NOT fully opened
+ * */
 static bool door_is_door_opened(uint8_t layer)
 {
 	int32_t value;
@@ -127,6 +135,14 @@ static bool door_is_door_opened(uint8_t layer)
 	return false;
 }
 
+/**
+ * @brief Check door status, is the door fully closed ?
+ *
+ * @param layer Door number, [1-4] is expected
+ *
+ * @return true, the door at layer @layer is fully closed
+ *		   false, the door at layer @layer is NOT fully closed
+ * */
 static bool door_is_door_closed(uint8_t layer)
 {
 	int32_t value;
