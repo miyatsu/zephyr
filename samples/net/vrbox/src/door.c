@@ -114,6 +114,32 @@ static void door_close_write_gpio(uint8_t layer)
 	gpio_comm_write(&door_gpio_table[layer-1][1], 1);
 }
 
+static bool door_is_door_opened(uint8_t layer)
+{
+	int32_t value;
+
+	gpio_comm_read(&door_gpio_table[layer - 1][2], &value);
+
+	if ( 0 == value )
+	{
+		return true;
+	}
+	return false;
+}
+
+static bool door_is_door_closed(uint8_t layer)
+{
+	int32_t value;
+
+	gpio_comm_read(&door_gpio_table[layer - 1][3], &value);
+
+	if ( 0 == value )
+	{
+		return true;
+	}
+	return false;
+}
+
 /**
  * @brief Set door motor stop
  *
@@ -618,6 +644,11 @@ int8_t door_open(uint8_t layer)
 {
 	int8_t rc;
 
+	if ( door_is_door_opened(layer) )
+	{
+		return 0;
+	}
+
 	/* Enable open in position irq */
 	door_open_in_position_irq_enable(layer);
 
@@ -654,6 +685,11 @@ int8_t door_open(uint8_t layer)
 int8_t door_close(uint8_t layer)
 {
 	int8_t rc;
+
+	if ( door_is_door_closed(layer) )
+	{
+		return 0;
+	}
 
 	/* Enable close in position irq */
 	door_close_in_position_irq_enable(layer);
