@@ -7,32 +7,13 @@
 #ifndef __CONFIG_H__
 #define __CONFIG_H__
 
-#ifdef CONFIG_NET_APP_SETTINGS
-#ifdef CONFIG_NET_IPV6
-#define ZEPHYR_ADDR		CONFIG_NET_APP_MY_IPV6_ADDR
-#define SERVER_ADDR		CONFIG_NET_APP_PEER_IPV6_ADDR
-#else
-#define ZEPHYR_ADDR		CONFIG_NET_APP_MY_IPV4_ADDR
-#define SERVER_ADDR		CONFIG_NET_APP_PEER_IPV4_ADDR
-#endif
-#else
-#ifdef CONFIG_NET_IPV6
-#define ZEPHYR_ADDR		"2001:db8::1"
-#define SERVER_ADDR		"2001:db8::2"
-#else
-#define ZEPHYR_ADDR		"172.16.0.4"
-#define SERVER_ADDR		"172.16.0.1"
-#endif
-#endif
-
-
-#define SERVER_PORT		1883
+//#define SERVER_ADDR		"192.168.0.126"
+//#define SERVER_PORT		1884
 
 
 #define APP_SLEEP_MSECS		500
 #define APP_TX_RX_TIMEOUT       300
 #define APP_NET_INIT_TIMEOUT    10000
-
 
 
 
@@ -44,34 +25,63 @@
 #endif /* CONFIG_APP_FACTORY_TEST */
 
 /* Axle config */
-//#define CONFIG_APP_AXLE_DEBUG
+#define CONFIG_APP_AXLE_DEBUG
 #define CONFIG_APP_AXLE_PWM_DEV_NAME			CONFIG_PWM_STM32_2_DEV_NAME
 #define CONFIG_APP_AXLE_PWM_OUTPUT_CHANNEL		2
 #define CONFIG_APP_AXLE_PWM_PERIOD				5000
 #define CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC	10
 
 /* Door config */
-//#define CONFIG_APP_DOOR_DEBUG
-#define CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC		5
-#define CONFIG_APP_DOOR_CLOSE_TIMEOUT_IN_SEC	5
+#define CONFIG_APP_DOOR_DEBUG
+#define CONFIG_APP_DOOR_INIT_THREAD_STACK_SIZE	512
+#define CONFIG_APP_DOOR_INIT_TIMEOUT_IN_SEC		CONFIG_APP_DOOR_CLOSE_TIMEOUT_IN_SEC
+#define CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC		20
+#define CONFIG_APP_DOOR_CLOSE_TIMEOUT_IN_SEC	20
+
+/* Infrared debug */
+//#define CONFIG_APP_INFRARED_DEBUG
+
+/* Headset config */
+#define CONFIG_APP_HEADSET_DEBUG
+#define CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC			5
+#define CONFIG_APP_HEADSET_HANDSPIKE_PUSH_WAIT_TIME_IN_SEC	2
+#define CONFIG_APP_HEADSET_HANDSPIKE_PULL_WAIT_TIME_IN_SEC	2
+#define CONFIG_APP_HEADSET_CELL_DIFF						3
+
+/* Json config */
+#define CONFIG_APP_JSON_DEBUG
+
+/* OTA config */
+#define CONFIG_APP_DFU_HTTP_RX_BUFF_SIZE	1024
+#define CONFIG_APP_DFU_HTTP_RX_TIMEOUT		5
+#define CONFIG_APP_DFU_HTTP_TX_TIMEOUT		5
+
+/* Main function config */
+//#define CONFIG_APP_MAIN_DEBUG
 
 
 
+/* MQTT config */
+/*****************************************************/
+#define CONFIG_APP_MQTT_DEBUG
+#define CONFIG_APP_MQTT_INIT_TIMEOUT	( 10 * 1000 )
+#define CONFIG_APP_MQTT_TIMEOUT			( 10 * 1000 )
+
+#define CONFIG_APP_MQTT_SERVER_ADDR		"192.168.0.151"
+#define CONFIG_APP_MQTT_SERVER_PORT		1883
+#define CONFIG_APP_MQTT_CLIENT_ID		"dev/rtos"
+#define CONFIG_APP_MQTT_SUBSCRIBE_TOPIC	"dev/rtos"
+#define CONFIG_APP_MQTT_PUBLISH_TOPIC	"srv/controller"
+
+#define CONFIG_APP_MQTT_CONNECT_RETRY_TIMES	5
+#define CONFIG_APP_MQTT_SEND_RETRY_TIMES	5
+
+#define CONFIG_APP_MQTT_PING_STACK_SIZE		512
 
 #define MQTT_CLIENTID			"dev/rtos"
 #define MQTT_SUBSCRIBE_TOPIC	"dev/rtos"
 #define MQTT_PUBLISH_TOPIC		"srv/controller"
-
-/* Set the following to 1 to enable the Bluemix topic format */
-#define APP_BLUEMIX_TOPIC	0
-
-/* These are the parameters for the Bluemix topic format */
-#if APP_BLUEMIX_TOPIC
-#define BLUEMIX_DEVTYPE		"sensor"
-#define BLUEMIX_DEVID		"carbon"
-#define BLUEMIX_EVENT		"status"
-#define BLUEMIX_FORMAT		"json"
-#endif
+/*****************************************************/
 
 #endif
 
