@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include <errno.h>
 
 #include <kernel.h>
 #include <gpio.h>
@@ -10,6 +11,14 @@
 
 #include "config.h"
 #include "gpio_comm.h"
+
+#define SYS_LOG_DOMAIN "headset"
+#ifdef CONFIG_APP_HEADSET_DEBUG
+	#define SYS_LOG_LEVEL SYS_LOG_LEVEL_DEBUG
+#else
+	#define SYS_LOG_LEVEL SYS_LOG_LEVEL_ERR
+#endif /* CONFIG_APP_HEADSET_DEBUG */
+#include <logging/sys_log.h>
 
 static struct gpio_group_pin_t headset_gpio_table[] =
 {
@@ -86,6 +95,8 @@ static void headset_handspike_push_pull(uint8_t push)
 	gpio_comm_write(&headset_gpio_table[3], !push);
 }
 
+static struct k_sem headset_dial_in_position_sem;
+
 /**
  * @brief Callback function when headset dial rotate to certain position
  *
@@ -99,26 +110,13 @@ static void headset_dial_in_position_irq_cb(struct device *dev,
 										struct gpio_callback *gpio_cb,
 										uint32_t pins)
 {
-	static int i = 0;
-	int status;
-	k_sleep(10);
-	gpio_comm_read(&headset_gpio_table[1], &status);
-	status = status ? 1 : 0;
-	printk("[%s] called, i = %d, status = %d\n", __func__, i++, status);
-	headset_handspike_push_pull(status);
-	return ;
 	uint32_t pin = 0;
 
-	if ( !headset_is_headset_in_position() )
-	{
-		/* No headset at current position, continue to rotate */
-		return ;
-	}
-
+	SYS_LOG_DBG("IRQ trigged");
 	/**
 	 * At this point, the dial is rotate just in position,
-	 * and we have a headset detected at the current position
-	 * that can be sell.
+	 * and we have to check if there is a headset at the
+	 * current position that can be sell.
 	 *
 	 * Stop the rotate, and to let the polling side to do
 	 * sell operation.
@@ -134,8 +132,8 @@ static void headset_dial_in_position_irq_cb(struct device *dev,
 	/* Disable gpio interrupt */
 	gpio_pin_disable_callback(dev, pin);
 
-	/* Stop rotate */
-	headset_dial_rotate_enable_disable(0);
+	/* Mark current dial is in/pass the certain position */
+	k_sem_give(&headset_dial_in_position_sem);
 }
 
 /**
@@ -143,7 +141,8 @@ static void headset_dial_in_position_irq_cb(struct device *dev,
  * */
 static void headset_dial_in_position_irq_enable(void)
 {
-	struct device *dev = device_get_binding(gpio_group_dev_name_table[headset_gpio_table[1].gpio_group]);
+	struct device *dev = device_get_binding(gpio_group_dev_name_table	\
+			[headset_gpio_table[1].gpio_group]);
 	gpio_pin_enable_callback(dev, headset_gpio_table[1].gpio_pin);
 }
 
@@ -152,7 +151,8 @@ static void headset_dial_in_position_irq_enable(void)
  * */
 static void headset_dial_in_position_irq_disable(void)
 {
-	struct device *dev = device_get_binding(gpio_group_dev_name_table[headset_gpio_table[1].gpio_group]);
+	struct device *dev = device_get_binding(gpio_group_dev_name_table	\
+			[headset_gpio_table[1].gpio_group]);
 	gpio_pin_disable_callback(dev, headset_gpio_table[1].gpio_pin);
 }
 
@@ -170,12 +170,15 @@ static void headset_dial_in_position_irq_init(void)
 	static struct gpio_callback gpio_cb;
 
 	/* Set in position gpio pin as interrupt mode */
-	gpio_comm_conf(&headset_gpio_table[1], GPIO_DIR_IN | GPIO_INT | GPIO_INT_DEBOUNCE | GPIO_PUD_PULL_UP | GPIO_INT_EDGE | GPIO_INT_ACTIVE_LOW);
+	gpio_comm_conf(&headset_gpio_table[1], GPIO_DIR_IN | GPIO_INT |	\
+			GPIO_INT_DEBOUNCE | GPIO_PUD_PULL_UP | GPIO_INT_EDGE | GPIO_INT_ACTIVE_LOW);
 
-	struct device *dev = device_get_binding(gpio_group_dev_name_table[headset_gpio_table[1].gpio_group]);
+	struct device *dev = device_get_binding(gpio_group_dev_name_table	\
+			[headset_gpio_table[1].gpio_group]);
 
 	/* Initial gpio callback */
-	gpio_init_callback(&gpio_cb, headset_dial_in_position_irq_cb, BIT(headset_gpio_table[1].gpio_pin));
+	gpio_init_callback(&gpio_cb, headset_dial_in_position_irq_cb,
+			BIT(headset_gpio_table[1].gpio_pin));
 
 	/* Add this current dev into callback strucure */
 	gpio_add_callback(dev, &gpio_cb);
@@ -190,13 +193,7 @@ static void headset_dial_in_position_irq_init(void)
 int8_t headset_buy(void)
 {
 	uint16_t i;
-	uint16_t rotate_wait_time_in_sec =
-				CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC;
-
-	uint8_t handspike_push_wait_time_in_sec =
-				CONFIG_APP_HEADSET_HANDSPIKE_PUSH_WAIT_TIME_IN_SEC;
-	uint8_t handspike_pull_wait_time_in_sec =
-				CONFIG_APP_HEADSET_HANDSPIKE_PULL_WAIT_TIME_IN_SEC;
+	int rc = 0;
 
 	if ( headset_stock <= 0 )
 	{
@@ -204,55 +201,103 @@ int8_t headset_buy(void)
 		 * Out of stock or hardware error
 		 * This state can not sell
 		 * */
+		rc = -1;
 		goto error;
 	}
 
-	/* Enable dial rotate */
+	if ( headset_is_headset_in_position() )
+	{
+		/* Current position have a headset to be sell */
+		goto push;
+	}
+
+	/* Empty position, move to off position so we can enable irq */
+
+	/* Be sure we disable irq */
+	headset_dial_in_position_irq_disable();
+
+	/* Start to rotate */
 	headset_dial_rotate_enable_disable(1);
 
-	/* Enable in position gpio irq */
-	headset_dial_in_position_irq_enable();
-
-	/* Polling gpio status */
-	for ( i = 0; i < 60 * rotate_wait_time_in_sec * 10; ++i )
+	/* Polling GPIO status */
+	for ( i = 0; i < CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10; ++i )
 	{
-		/**
-		 * Dial in position detected AND
-		 * Current position have a headset can be sell
-		 * */
-		if ( headset_is_dial_in_position() && headset_is_headset_in_position())
+		if ( !headset_is_dial_in_position() )
 		{
 			break;
 		}
 
-		/**
-		 * Dial not in position or no headset can be sell at current position
-		 * Wait for more 100ms
-		 * */
 		k_sleep(100);
 	}
-
-	/* Disable irq just in case of free trigger */
-	headset_dial_in_position_irq_disable();
-
-	/* Stop rotate */
+	/* Stop rotate without wait */
 	headset_dial_rotate_enable_disable(0);
 
-	/* Check for timeout */
-	if ( i >=  60 * rotate_wait_time_in_sec * 10 )
+	if ( i >= CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10 )
 	{
+		headset_stock = -1;
+		rc = -ETIMEDOUT;
 		goto error;
 	}
-	else
+
+	/* Now the dial is not in position, we can enable the irq */
+
+	/* Enable dial rotate */
+	headset_dial_rotate_enable_disable(1);
+
+	/* Polling gpio status */
+	for ( i = 0; i < 60; ++i )
 	{
-		goto push;
+		/* Enable in position gpio irq */
+		headset_dial_in_position_irq_enable();
+
+		rc = k_sem_take(&headset_dial_in_position_sem,
+				CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC);
+		if ( 0 != rc )
+		{
+			headset_stock = -1;
+			goto error;
+		}
+
+		/* IRQ trigged */
+
+		/* Check if there is a headset in position */
+		if ( headset_is_headset_in_position() )
+		{
+			/* Stop rotate */
+			headset_dial_rotate_enable_disable(0);
+
+			/* Wait the dial fully stoped */
+			k_sleep(1000);
+
+			goto push;
+		}
+ 
+		/**
+		 * No headset in current position,
+		 * wait the dial rotate out of position
+		 * */
+		k_sleep(1000);
 	}
+
+	/**
+	 * All 60 position are empty, this will never happend.
+	 *
+	 * Set stock to zero, and return;
+	 * */
+	headset_dial_in_position_irq_disable();
+	headset_dial_rotate_enable_disable(0);
+
+	headset_stock = 0;
+	return -1;
 
 /**
  * Headset detected, and at the hendspike straight ahead position.
  * Start to push the headset out.
  * */
 push:
+	/* Disable irq */
+	headset_dial_in_position_irq_disable();
+
 	/* Stop rotate */
 	headset_dial_rotate_enable_disable(0);
 
@@ -260,17 +305,18 @@ push:
 	headset_handspike_push_pull(1);
 
 	/* Wait until its fully push out */
-	k_sleep(handspike_push_wait_time_in_sec * 1000);
+	k_sleep(300);
 
 	/* Pull back handspike */
 	headset_handspike_push_pull(0);
 
 	/* Wait until handspike fully pulled back */
-	k_sleep(handspike_pull_wait_time_in_sec * 1000);
+	k_sleep(1000);
 
 	/* Check the headset realy pushed out */
 	if ( headset_is_headset_in_position() )
 	{
+		rc = -1;
 		goto error;
 	}
 
@@ -281,47 +327,99 @@ push:
 error:
 	/* Some error happened */
 	headset_stock = -1;
-	return -1;
+	return rc;
 }
 
 
-int8_t headset_stock_init(void)
+static int8_t headset_stock_init(void)
 {
 	uint16_t i, j;
-	uint16_t rotate_wait_time_in_sec =
-				CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC;
+	int rc = 0;
 
-	headset_dial_rotate_enable_disable(1);
-	for ( i = 0; i < 60; ++i )
+	/* Check dial position */
+	if ( headset_is_dial_in_position() )
 	{
-		for ( j = 0; j < rotate_wait_time_in_sec * 10; ++j )
+		/**
+		 * Current dial is in position,
+		 * to privent unnessary irq, move the dial off certain position
+		 * */
+
+		/* Disable irq to privent off position callback */
+		headset_dial_in_position_irq_disable();
+
+		/* Start to rotate */
+		headset_dial_rotate_enable_disable(1);
+
+		SYS_LOG_DBG("Start to polling...\n");
+		/* Polling read gpio */
+		for ( i = 0; i < CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10; ++i )
 		{
-			if ( headset_is_dial_in_position() )
+			/* Dial not in position */
+			if ( !headset_is_dial_in_position() )
 			{
-				/* Dial in potition detected */
+				SYS_LOG_DBG("Off grid detected!\n");
 				break;
 			}
-			/* Dial not in position, wait for more 100ms */
+
+			/* Still in position, wait more 100ms */
 			k_sleep(100);
 		}
 
-		if ( j >= rotate_wait_time_in_sec * 10 )
-		{
-			/* Rotate dial in position timeout */
-			headset_stock = -1;
-			return -1;
-		}
+		/* Stop rotate */
+		headset_dial_rotate_enable_disable(0);
 
-		/* Now the dial is in position */
-		if ( headset_is_headset_in_position() )
+		/* Check for timeout */
+		if ( i >= CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10 )
 		{
-			/* Box not empty */
-			headset_stock++;
+			/* Wait timeout */
+			headset_stock = -1;
+			rc = -ETIMEDOUT;
+			goto out;
 		}
 	}
 
-	/* Dial rotate one lap, stock counting done. */
-	return 0;
+	/* Now, the dial is not in position, start to count */
+	SYS_LOG_DBG("Start to counting...\n");
+	for ( i = 0; i < 60; ++i )
+	{
+		/* Enable irq */
+		headset_dial_in_position_irq_enable();
+		headset_dial_rotate_enable_disable(1);
+		k_sleep(50);
+
+		/* Wait irq been trigged */
+		rc = k_sem_take(&headset_dial_in_position_sem,
+				CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 1000);
+		if ( 0 != rc )
+		{
+			SYS_LOG_DBG("k_sem_take error, rc = %d", rc);
+			headset_stock = -1;
+			goto out;
+		}
+
+		/* IRQ trigged, check if there is a headset in position */
+		if ( headset_is_headset_in_position() )
+		{
+			SYS_LOG_DBG("count++\n");
+			headset_stock++;
+		}
+
+		/**
+		 * 1600ms per persition, 1000ms should be long enough
+		 * to wait the megnet switch trun off
+		 * */
+		k_sleep(1000);
+	}
+out:
+	/* stock counting done. */
+	SYS_LOG_DBG("Init done, count: %d\n", headset_stock);
+	/* Disable irq */
+	headset_dial_in_position_irq_disable();
+
+	/* Stop rotate dial */
+	headset_dial_rotate_enable_disable(0);
+
+	return rc;
 }
 
 static void headset_gpio_init(void)
@@ -337,12 +435,30 @@ static void headset_gpio_init(void)
 	{
 		gpio_comm_read(&headset_gpio_table[i], &temp);
 	}
+
+	gpio_comm_write(&headset_gpio_table[0], 1);
+	gpio_comm_write(&headset_gpio_table[3], 1);
 }
 
+/**
+ * @brief Initial wrapper function of headset
+ *
+ * @return Always return 0
+ * */
 int8_t headset_init(void)
 {
 	headset_dial_in_position_irq_init();
 	headset_gpio_init();
+
+	while ( 1 )
+	{
+		uint32_t value;
+		gpio_comm_read(&headset_gpio_table[2], &value);
+		printk("Value = %d\n", value);
+		k_sleep(300);
+	}
+	k_sem_init(&headset_dial_in_position_sem, 0, 1);
+
 	headset_stock_init();
 	return 0;
 }
@@ -360,10 +476,9 @@ int8_t headset_factory_test(void)
 
 void headset_debug(void)
 {
-	headset_dial_in_position_irq_init();
-	headset_gpio_init();
-	headset_dial_in_position_irq_enable();
-	headset_handspike_push_pull(0);
+	int rc;
+	SYS_LOG_DBG("Start to run debug...");
+	headset_init();
 	while ( 1 )
 	{
 		k_sleep(1000);
