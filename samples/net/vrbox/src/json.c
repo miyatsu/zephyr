@@ -25,7 +25,7 @@ static const char *cmd_table[] =
 {
 	/* in cmd */
 	"get_status",
-	"open"
+	"open",
 	"admin_fetch",
 	"admin_rotate",
 	"admin_close",
@@ -101,6 +101,7 @@ static void out_json_add_status_field(JSON_Value *root_out)
 	{
 		json_array_append_number(json_array(door), door_status_array[i] ? 1 : 0);
 	}
+
 	/* Add "door" field into json */
 	json_object_set_value(json_object(root_out), "doors", door);
 
@@ -118,6 +119,7 @@ static void out_json_add_status_field(JSON_Value *root_out)
 		}
 		json_array_append_value(json_array(box_out), box_in[i]);
 	}
+
 	/* Add "cabinets" field into json */
 	json_object_set_value(json_object(root_out), "cabinets", box_out);
 
@@ -286,30 +288,49 @@ static void run_cmd_dfu(JSON_Value *root_in, JSON_Value *root_out)
 	return ;
 }
 
-/* Json string buffer */
-static uint8_t buff[2048];
 
-void json_cmd_parse(uint8_t *msg, uint16_t msg_len)
+int json_cmd_parse(uint8_t *msg, uint16_t msg_len)
 {
+	int rc = 0;
 	char *cmd = NULL;
 	enum cmd_table_index_e index;
+
+	uint8_t * buff			= NULL;
+	JSON_Value * root_in	= NULL;
+	JSON_Value * root_out	= NULL;
+
+	buff = k_malloc(2048);
+	if ( NULL == buff )
+	{
+		SYS_LOG_ERR("Out of memory at line: %d", __LINE__);
+		rc = -ENOMEM;
+		goto out;
+	}
 
 	/* Copy net buff to local buff */
 	memcpy(buff, msg, msg_len);
 	buff[msg_len] = 0;
 
-	SYS_LOG_DBG("Json recv: %s", buff);
+	SYS_LOG_DBG("%s", buff);
 
 	/* Start to parse json, the memory will free at each switch function */
-	JSON_Value *root = json_parse_string(buff);
-	if ( NULL == root )
+	root_in = json_parse_string(buff);
+	if ( NULL == root_in )
 	{
 		/* Json parse error */
-		goto error;
+		SYS_LOG_ERR("Out of memory at line: %d", __LINE__);
+		rc = -ENOMEM;
+		goto out;
 	}
 
 	/* Get "cmd" field string value */
-	cmd = json_object_get_string(json_object(root), "cmd");
+	cmd = json_object_get_string(json_object(root_in), "cmd");
+	if ( NULL == cmd )
+	{
+		SYS_LOG_ERR("Invalid json format, \"cmd\" no found!");
+		rc = -EINVAL;
+		goto out;
+	}
 
 	/* Ergodic every possibile cmd */
 	for ( index = CMD_IN_START; index <= CMD_IN_END; ++index )
@@ -324,49 +345,56 @@ void json_cmd_parse(uint8_t *msg, uint16_t msg_len)
 	/* Is the cmd match the cmd table ? */
 	if ( index > CMD_IN_END )
 	{
-		json_value_free(root);
-		goto error;
+		SYS_LOG_ERR("Unknown CMD!");
+		rc = -EINVAL;
+		goto out;
 	}
 
 	/* Out cmd json */
-	JSON_Value *root_out = json_value_init_object();
+	root_out = json_value_init_object();
 	if ( NULL == root_out )
 	{
-		goto error;
+		SYS_LOG_ERR("No memory at line: %d", __LINE__);
+		rc = -ENOMEM;
+		goto out;
 	}
 
 	/* Start to run specific cmd */
 	switch ( index )
 	{
 		case CMD_GET_STATUS:
-			run_cmd_get_status(root, root_out);
+			run_cmd_get_status(root_in, root_out);
 			break;
 		case CMD_OPEN:
-			run_cmd_open(root, root_out);
+			run_cmd_open(root_in, root_out);
 			break;
-		case CMD_ADMIN_OPEN:
-			run_cmd_admin_fetch(root, root_out);
+		case CMD_ADMIN_FETCH:
+			run_cmd_admin_fetch(root_in, root_out);
 			break;
 		case CMD_ADMIN_ROTATE:
-			run_cmd_admin_rotate(root, root_out);
+			run_cmd_admin_rotate(root_in, root_out);
 			break;
 		case CMD_ADMIN_CLOSE:
-			run_cmd_admin_close(root, root_out);
+			run_cmd_admin_close(root_in, root_out);
 			break;
 		case CMD_HEADSET_BUY:
-			run_cmd_headset_buy(root, root_out);
+			run_cmd_headset_buy(root_in, root_out);
 			break;
 		case CMD_DFU:
-			run_cmd_dfu(root, root_out);
+			run_cmd_dfu(root_in, root_out);
 			break;
 		default:
-			json_value_free(root);
-			json_value_free(root_out);
-			goto error;
+			SYS_LOG_ERR("Impossibile index!");
+			rc = -EINVAL;
 	}
-	return ;
-error:
-	return ;
+	k_free(buff);
+	return rc;
+
+out:
+	json_value_free(root_out);
+	json_value_free(root_in);
+	k_free(buff);
+	return rc;
 }
 
 #ifdef CONFIG_APP_JSON_DEBUG
