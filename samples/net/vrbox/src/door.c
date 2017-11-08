@@ -797,24 +797,23 @@ int8_t door_admin_close(void)
 
 	int32_t layer[4] = {1, 2, 3, 4};
 	int32_t thread_rc[4] = {0xFC, 0xFC, 0xFC, 0xFC};
-
+	struct k_sem thread_sem[4];
 	int32_t rc;
 
 	uint8_t i;
 
-	/* Used to sync this thread and four init thread  */
-	struct k_sem sem;
-
-	k_sem_init(&sem, 0, 4);
+	memset(door_init_thread, 0x00, sizeof(struct k_thread) * 4);
 
 	/* Start to init doors */
 	for ( i = 0; i < 4; ++i )
 	{
+		k_sem_init(&thread_sem[i], 0, 1);
+
 		k_thread_create( &door_init_thread[i],
 			door_comm_thread_stack[i],
 			K_THREAD_STACK_SIZEOF(door_comm_thread_stack[i]),
 			door_close_thread_entry_point,
-			(void *)&layer[i], (void *)&sem, (void*)&thread_rc[i],
+			(void *)&layer[i], (void *)&thread_sem[i], (void*)&thread_rc[i],
 			0, 0, K_NO_WAIT );
 			/* Prio: 0, Flag: 0, Delay: No delay */
 	}
@@ -822,10 +821,11 @@ int8_t door_admin_close(void)
 	/* Wait all four initial thread return */
 	for ( i = 0; i < 4; ++i )
 	{
-		rc = k_sem_take(&sem, K_SECONDS(CONFIG_APP_DOOR_INIT_TIMEOUT_IN_SEC));
+		rc = k_sem_take(&thread_sem[i], K_FOREVER);
 		if ( 0 != rc )
 		{
 			/* Timeout or error happened */
+			SYS_LOG_ERR("Sem take error at layer %d, return %d", i + 1, rc);
 			return -1;
 		}
 	}
@@ -835,6 +835,7 @@ int8_t door_admin_close(void)
 	{
 		if ( 0 != thread_rc[i] )
 		{
+			SYS_LOG_ERR("Close error at layer %d, return: %d", i + 1, thread_rc[i]);
 			return -1;
 		}
 	}
@@ -861,23 +862,24 @@ int8_t door_admin_open(void)
 
 	int32_t layer[4] = {1, 2, 3, 4};
 	int32_t thread_rc[4] = {0xFC, 0xFC, 0xFC, 0xFC};
+	struct k_sem thread_sem[4];
 
 	int32_t rc;
 
 	uint8_t i;
 
-	struct k_sem sem;
-
-	k_sem_init(&sem, 0, 4);
+	memset(door_open_thread, 0x00, sizeof(struct k_thread) * 4);
 
 	/* Start to open doors */
 	for ( i = 0; i < 4; ++i )
 	{
+		k_sem_init(&thread_sem[i], 0, 1);
+
 		k_thread_create( &door_open_thread[i],
 			door_comm_thread_stack[i],
 			K_THREAD_STACK_SIZEOF(door_comm_thread_stack[i]),
 			door_open_thread_entry_point,
-			(void *)&layer[i], (void *)&sem, (void*)&thread_rc[i],
+			(void *)&layer[i], (void *)&thread_sem[i], (void*)&thread_rc[i],
 			0, 0, K_NO_WAIT );
 			/* Prio: 0, Flag: 0, Delay: No delay */
 	}
@@ -885,9 +887,10 @@ int8_t door_admin_open(void)
 	/* Wait door to opened */
 	for ( i = 0; i < 4; ++i )
 	{
-		rc = k_sem_take(&sem, K_SECONDS(CONFIG_APP_DOOR_OPEN_TIMEOUT_IN_SEC));
+		rc = k_sem_take(&thread_sem[i], K_FOREVER);
 		if ( 0 != rc )
 		{
+			SYS_LOG_ERR("Sem take error at layer %d, return %d", i + 1, rc);
 			return -1;
 		}
 	}
@@ -896,10 +899,12 @@ int8_t door_admin_open(void)
 	{
 		if ( 0 != thread_rc[i] )
 		{
+			SYS_LOG_ERR("Open error at layer %d, return: %d", i + 1, thread_rc[i]);
 			return -1;
 		}
 	}
 
+	SYS_LOG_DBG("Open OK");
 	return 0;
 }
 
