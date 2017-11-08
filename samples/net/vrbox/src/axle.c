@@ -25,6 +25,10 @@
 #include "config.h"
 #include "gpio_comm.h"
 
+#define SYS_LOG_DOMAIN "axle"
+#define SYS_LOG_LEVEL SYS_LOG_LEVEL_DBG
+#include <logging/sys_log.h>
+
 /**
  * P4:
  * -----------------------
@@ -546,7 +550,7 @@ static int8_t axle_rotate_init(uint8_t direction)
 	axle_set_rotate_direction(direction);
 
 	/* Unlock the break */
-	axle_set_lock_unlock(0);
+	axle_set_rotate_lock_unlock(1);
 
 	/* Wait the lock fully unlocked */
 	k_sleep(50);
@@ -579,7 +583,7 @@ static int8_t axle_rotate_init(uint8_t direction)
 	k_sleep(50);
 
 	/* Lock the axle */
-	axle_set_lock_unlock(1);
+	axle_set_rotate_lock_unlock(0);
 
 	/* Disable all position gpio irq */
 	for ( i = 1; i <= 7; ++i )
@@ -592,9 +596,11 @@ static int8_t axle_rotate_init(uint8_t direction)
 	{
 		/* Wait axle rotate to next position timeout */
 		axle_status = false;
+		SYS_LOG_ERR("Rotate init ERROR\n");
 		return -1;
 	}
 
+	SYS_LOG_DBG("Rotate init ok\n");
 	axle_status = true;
 	return 0;
 }
@@ -631,6 +637,12 @@ int8_t axle_init(void)
 	/* Flush output and set the break locked */
 	axle_set_rotate_lock_unlock(0);
 
+	/* Current axle already in position, no need to rotate */
+	if ( 0 != axle_position_read() )
+	{
+		axle_status = true;
+		return 0;
+	}
 	/**
 	 * Rotate the axle to make the axle at one certain position
 	 *
@@ -642,6 +654,8 @@ int8_t axle_init(void)
 		axle_status = true;
 		return 0;
 	}
+
+	SYS_LOG_ERR("Can not reach the certain position");
 	axle_status = false;
 	return -1;
 }
@@ -659,23 +673,49 @@ int8_t axle_factory_test(void)
 
 void axle_debug(void)
 {
+	int rc;
 	uint8_t i;
-	axle_in_position_irq_init();
+	printk("Start to init...\n");
+	if ( 0 != axle_init() )
+	{
+		printk("Init Error!\n");
+	}
+	else
+	{
+		printk("Init OK\n");
+	}
 	while ( 1 )
 	{
-		printk("Start to enable irq...\n");
+		printk("Start to rotate...\n");
 		for ( i = 1; i <= 7; ++i )
 		{
-			axle_in_position_irq_enable(i);
+			printk("Start to rotate to %d...\n", i);
+			rc = axle_rotate_to(i);
+			if ( 0 != rc )
+			{
+				printk("Rotate failed, rc = %d\n", rc);
+			}
+			else
+			{
+				printk("Rotate OK.\n");
+			}
+			k_sleep(1000);
 		}
-		printk("Enable ok, wait 10 sec...\n");
-		k_sleep(10000);
-		printk("Start to disable irq...\n");
-		for ( i = 1; i <= 7; ++i )
+		k_sleep(2000);
+		for ( i = 7; i >= 1; --i )
 		{
-			axle_in_position_irq_disable(i);
+			printk("Start to rotate to %d...\n", i);
+			rc = axle_rotate_to(i);
+			if ( 0 != rc )
+			{
+				printk("Rotate failed, rc = %d\n", rc);
+			}
+			else
+			{
+				printk("Rotate OK.\n");
+			}
+			k_sleep(1000);
 		}
-		printk("Disable ok, wait 1 sec...\n");
 		k_sleep(1000);
 	}
 	return ;
