@@ -30,6 +30,7 @@ static const char *cmd_table[] =
 	"admin_rotate",
 	"admin_close",
 	"headset_buy",
+	"headset_add",
 	"dfu",
 
 	/* out cmd */
@@ -283,6 +284,20 @@ static void run_cmd_headset_buy(JSON_Value *root_in, JSON_Value *root_out)
 	out_json_comm(root_in, root_out);
 }
 
+static void run_cmd_headset_buy(JSON_Value *root_in, JSON_Value *root_out)
+{
+	if ( 0 == headset_add() )
+	{
+		json_object_set_string(json_object(root_out), "cmd", "headset_add_ok");
+	}
+	else
+	{
+		json_object_set_string(json_object(root_out), "cmd", "headset_add_error");
+	}
+
+	out_json_comm(root_in, root_out);
+}
+
 static void run_cmd_dfu(JSON_Value *root_in, JSON_Value *root_out)
 {
 	return ;
@@ -379,6 +394,9 @@ int json_cmd_parse(uint8_t *msg, uint16_t msg_len)
 			break;
 		case CMD_HEADSET_BUY:
 			run_cmd_headset_buy(root_in, root_out);
+			break;
+		case CMD_HEADSET_ADD:
+			run_cmd_headset_add(root_in, root_out);
 			break;
 		case CMD_DFU:
 			run_cmd_dfu(root_in, root_out);
