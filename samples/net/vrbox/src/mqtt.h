@@ -23,7 +23,7 @@ int mqtt_msg_send(const char *buff);
 
 #ifdef __cplusplus
 }
-#endif /* __cplusplus
+#endif /* __cplusplus */
 
 #endif /* MQTT_H */
 
