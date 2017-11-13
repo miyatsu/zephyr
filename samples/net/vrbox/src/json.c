@@ -284,7 +284,7 @@ static void run_cmd_headset_buy(JSON_Value *root_in, JSON_Value *root_out)
 	out_json_comm(root_in, root_out);
 }
 
-static void run_cmd_headset_buy(JSON_Value *root_in, JSON_Value *root_out)
+static void run_cmd_headset_add(JSON_Value *root_in, JSON_Value *root_out)
 {
 	if ( 0 == headset_add() )
 	{
@@ -314,7 +314,7 @@ int json_cmd_parse(uint8_t *msg, uint16_t msg_len)
 	JSON_Value * root_in	= NULL;
 	JSON_Value * root_out	= NULL;
 
-	buff = k_malloc(2048);
+	buff = k_malloc(512);
 	if ( NULL == buff )
 	{
 		SYS_LOG_ERR("Out of memory at line: %d", __LINE__);
@@ -326,7 +326,7 @@ int json_cmd_parse(uint8_t *msg, uint16_t msg_len)
 	memcpy(buff, msg, msg_len);
 	buff[msg_len] = 0;
 
-	SYS_LOG_DBG("%s", buff);
+	SYS_LOG_DBG("[%d]%s", k_uptime_get_32()/1000, buff);
 
 	/* Start to parse json, the memory will free at each switch function */
 	root_in = json_parse_string(buff);
