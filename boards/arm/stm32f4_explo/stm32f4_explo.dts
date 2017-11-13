@@ -13,13 +13,14 @@
 
 	chosen {
 		zephyr,console = &usart1;
+		//zephyr,uart-pipe = &usart1;
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 	};
 };
 
 &usart1 {
-	current-speed = <115200>;
+	current-speed = <256000>;
 	pinctrl-0 = <&usart1_pins_a>;
 	pinctrl-names = "default";
 	status = "ok";
@@ -28,6 +29,13 @@
 &usart2 {
 	current-speed = <115200>;
 	pinctrl-0 = <&usart2_pins_a>;
+	pinctrl-names = "default";
+	status = "ok";
+};
+
+&usart3 {
+	current-speed = <57600>;
+	pinctrl-0 = <&usart3_pins_a>;
 	pinctrl-names = "default";
 	status = "ok";
 };
