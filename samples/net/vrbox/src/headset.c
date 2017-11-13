@@ -1,13 +1,21 @@
+/**
+ * Copyright (c) 2017 Shenzhen Trylong Intelligence Technology Co., Ltd. All rights reserved.
+ *
+ * @fiel headset.c
+ *
+ * @brief Headset sell driver
+ *
+ * @author Ding Tao <miyatsu@qq.com>
+ *
+ * @date 11:45:56 November 10, 2017 GTM+8
+ *
+ * */
 #include <stdint.h>
 #include <stdbool.h>
 #include <errno.h>
 
 #include <kernel.h>
 #include <gpio.h>
-
-#ifdef CONFIG_APP_HEADSET_DEBUG
-#include <misc/printk.h>
-#endif /* CONFIG_APP_HEADSET_DEBUG */
 
 #include "config.h"
 #include "gpio_comm.h"
@@ -66,7 +74,7 @@ static void headset_dial_rotate_enable_disable(uint8_t enable)
  * */
 static bool headset_is_dial_in_position(void)
 {
-	uint32_t value;
+	uint32_t value = 0;
 	gpio_comm_read(&headset_gpio_table[1], &value);
 	return !value;
 }
@@ -79,9 +87,9 @@ static bool headset_is_dial_in_position(void)
  * */
 static bool headset_is_headset_in_position(void)
 {
-	uint32_t value;
+	uint32_t value = 0;
 	gpio_comm_read(&headset_gpio_table[2], &value);
-	return !value;
+	return value;
 }
 
 /**
@@ -95,6 +103,11 @@ static void headset_handspike_push_pull(uint8_t push)
 	gpio_comm_write(&headset_gpio_table[3], !push);
 }
 
+/**
+ * Due to asynchronous execution on main thread and dial in position irq,
+ * we use a semaphore to synchronous two thread in order to execute next
+ * instruction in main thread.
+ * */
 static struct k_sem headset_dial_in_position_sem;
 
 /**
@@ -112,7 +125,14 @@ static void headset_dial_in_position_irq_cb(struct device *dev,
 {
 	uint32_t pin = 0;
 
+	/* Trigged at rising edge only, ignore trigged at falling edge */
+	if ( !headset_is_dial_in_position() )
+	{
+		return ;
+	}
+
 	SYS_LOG_DBG("IRQ trigged");
+
 	/**
 	 * At this point, the dial is rotate just in position,
 	 * and we have to check if there is a headset at the
@@ -185,10 +205,58 @@ static void headset_dial_in_position_irq_init(void)
 }
 
 /**
+ * @brief This function is to move the dial to none certain position
+ *
+ * Which make the irq can not be trigged at condition of ACTIVE_HIGH,
+ * because we are never reach a rising edge after call this function.
+ *
+ * @return 0, move ok
+ *		  -1, some error happened
+ * */
+static int headset_move_dial_off_grid(void)
+{
+	int i, rc = 0;
+	/* Disable irq to privent off position callback */
+	headset_dial_in_position_irq_disable();
+
+	/* Start to rotate */
+	headset_dial_rotate_enable_disable(1);
+
+	SYS_LOG_DBG("Start to polling...\n");
+	/* Polling read gpio */
+	for ( i = 0; i < CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10; ++i )
+	{
+		/* Dial not in position */
+		if ( !headset_is_dial_in_position() )
+		{
+			SYS_LOG_DBG("Off grid detected!\n");
+			break;
+		}
+
+		/* Still in position, wait more 100ms */
+		k_sleep(100);
+	}
+
+	/* Stop rotate */
+	headset_dial_rotate_enable_disable(0);
+
+	/* Check for timeout */
+	if ( i >= CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10 )
+	{
+		/* Wait timeout */
+		headset_stock = -1;
+		SYS_LOG_ERR("Rotate timedout");
+		rc = -ETIMEDOUT;
+	}
+
+	return rc;
+}
+
+/**
  * @brief Buy a headset
  *
  * @return  0 Buy success
- *		   -1 Some error happened
+ *		   <0 Some error happened
  * */
 int8_t headset_buy(void)
 {
@@ -202,59 +270,39 @@ int8_t headset_buy(void)
 		 * This state can not sell
 		 * */
 		rc = -1;
+		SYS_LOG_ERR("headset_stock = %d", headset_stock);
 		goto error;
 	}
 
-	if ( headset_is_headset_in_position() )
-	{
-		/* Current position have a headset to be sell */
-		goto push;
-	}
-
-	/* Empty position, move to off position so we can enable irq */
-
-	/* Be sure we disable irq */
-	headset_dial_in_position_irq_disable();
-
-	/* Start to rotate */
-	headset_dial_rotate_enable_disable(1);
-
-	/* Polling GPIO status */
-	for ( i = 0; i < CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10; ++i )
-	{
-		if ( !headset_is_dial_in_position() )
-		{
-			break;
-		}
-
-		k_sleep(100);
-	}
-	/* Stop rotate without wait */
-	headset_dial_rotate_enable_disable(0);
-
-	if ( i >= CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10 )
+	rc = headset_move_dial_off_grid();
+	if ( 0 != rc )
 	{
 		headset_stock = -1;
-		rc = -ETIMEDOUT;
+		SYS_LOG_ERR("Error at line: %d", __LINE__);
 		goto error;
 	}
 
-	/* Now the dial is not in position, we can enable the irq */
+	/**
+	 * Now the dial is not in position, we can enable the irq
+	 * */
 
-	/* Enable dial rotate */
-	headset_dial_rotate_enable_disable(1);
 
 	/* Polling gpio status */
 	for ( i = 0; i < 60; ++i )
 	{
+		/* Enable dial rotate */
+		headset_dial_rotate_enable_disable(1);
+
 		/* Enable in position gpio irq */
 		headset_dial_in_position_irq_enable();
+		k_sleep(50);
 
 		rc = k_sem_take(&headset_dial_in_position_sem,
-				CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC);
+				CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 1000);
 		if ( 0 != rc )
 		{
 			headset_stock = -1;
+			SYS_LOG_ERR("Timedout at line: %d", __LINE__);
 			goto error;
 		}
 
@@ -276,7 +324,13 @@ int8_t headset_buy(void)
 		 * No headset in current position,
 		 * wait the dial rotate out of position
 		 * */
-		k_sleep(1000);
+		rc = headset_move_dial_off_grid();
+		if ( 0 != rc )
+		{
+			headset_stock = -1;
+			SYS_LOG_ERR("Error at line: %d", __LINE__);
+			goto error;
+		}
 	}
 
 	/**
@@ -285,9 +339,13 @@ int8_t headset_buy(void)
 	 * Set stock to zero, and return;
 	 * */
 	headset_dial_in_position_irq_disable();
+
 	headset_dial_rotate_enable_disable(0);
 
 	headset_stock = 0;
+
+	SYS_LOG_DBG("Headset sold out");
+
 	return -1;
 
 /**
@@ -305,7 +363,7 @@ push:
 	headset_handspike_push_pull(1);
 
 	/* Wait until its fully push out */
-	k_sleep(300);
+	k_sleep(200);
 
 	/* Pull back handspike */
 	headset_handspike_push_pull(0);
@@ -316,21 +374,97 @@ push:
 	/* Check the headset realy pushed out */
 	if ( headset_is_headset_in_position() )
 	{
+		/**
+		 * Note: Once the headset is not sell out, we can NOT determine
+		 * the machine is broken. May be the accuracy is not enough on
+		 * this position, we can make an another push by clould.
+		 * */
 		rc = -1;
-		goto error;
+		SYS_LOG_ERR("Handspike error");
+		return rc;
 	}
 
-	/* Every thing fine */
+	/* Every thing is fine */
+	SYS_LOG_DBG("OK");
 	headset_stock--;
 	return 0;
 
 error:
-	/* Some error happened */
+	/* Some error happened, timedout for most cases */
 	headset_stock = -1;
+
 	return rc;
 }
 
+/**
+ * @brief Add headset into box
+ *
+ * In ID(Instructure Design) phase, we set a manual opened door at the back
+ * of the box. When administrator want to add more headset into this box,
+ * we need move three or four positoin to make the dial dead against this
+ * manual door so the administrator can insert three or four headset into
+ * boxes.
+ *
+ * @return 0, rotate ok
+ *		  <0, some error happened
+ * */
+int headset_add(void)
+{
+	int i, rc = 0;
+	rc = headset_move_dial_off_grid();
+	if ( 0 != rc )
+	{
+		SYS_LOG_ERR("Error at line: %d", __LINE__);
+		headset_stock = -1;
+		goto out;
+	}
 
+	for ( i = 0; i < 3; ++i )
+	{
+		/* Enable irq */
+		headset_dial_in_position_irq_enable();
+
+		/* Start to rotate */
+		headset_dial_rotate_enable_disable(1);
+		k_sleep(50);
+
+		/* Wait irq been trigged */
+		rc = k_sem_take(&headset_dial_in_position_sem, 
+				CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 1000);
+		if ( 0 != rc )
+		{
+			SYS_LOG_DBG("k_sem_take error, rc = %d", rc);
+			headset_stock = -1;
+			goto out;
+		}
+
+		/* IRQ trigged */
+
+		/* Do nothing */
+
+		/* Move off grid, to avoid FALLING EDGE trigge of irq */
+		rc = headset_move_dial_off_grid();
+		if ( 0 != rc )
+		{
+			headset_stock = -1;
+			SYS_LOG_DBG("Error at line: %d", __LINE__);
+			goto out;
+		}
+	}
+out:
+	return rc;
+}
+
+/**
+ * @brief Read the number of the headset
+ *
+ * After power up, the box did not know how many headset is in it, so
+ * we must initial it by polling all possibile position and check if
+ * it have a headset at that position.
+ *
+ * @return 0, initial ok
+ *		  <0, some error happened
+ * */
 static int8_t headset_stock_init(void)
 {
 	uint16_t i, j;
@@ -343,39 +477,12 @@ static int8_t headset_stock_init(void)
 		 * Current dial is in position,
 		 * to privent unnessary irq, move the dial off certain position
 		 * */
-
-		/* Disable irq to privent off position callback */
-		headset_dial_in_position_irq_disable();
-
-		/* Start to rotate */
-		headset_dial_rotate_enable_disable(1);
-
-		SYS_LOG_DBG("Start to polling...\n");
-		/* Polling read gpio */
-		for ( i = 0; i < CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10; ++i )
+		rc = headset_move_dial_off_grid();
+		if ( 0 != rc )
 		{
-			/* Dial not in position */
-			if ( !headset_is_dial_in_position() )
-			{
-				SYS_LOG_DBG("Off grid detected!\n");
-				break;
-			}
-
-			/* Still in position, wait more 100ms */
-			k_sleep(100);
-		}
-
-		/* Stop rotate */
-		headset_dial_rotate_enable_disable(0);
-
-		/* Check for timeout */
-		if ( i >= CONFIG_APP_HEADSET_ROTATE_TIMEOUT_IN_SEC * 10 )
-		{
-			/* Wait timeout */
 			headset_stock = -1;
-			rc = -ETIMEDOUT;
 			goto out;
-		}
+		} 
 	}
 
 	/* Now, the dial is not in position, start to count */
@@ -384,6 +491,8 @@ static int8_t headset_stock_init(void)
 	{
 		/* Enable irq */
 		headset_dial_in_position_irq_enable();
+
+		/* Start to rotate */
 		headset_dial_rotate_enable_disable(1);
 		k_sleep(50);
 
@@ -404,24 +513,29 @@ static int8_t headset_stock_init(void)
 			headset_stock++;
 		}
 
-		/**
-		 * 1600ms per persition, 1000ms should be long enough
-		 * to wait the megnet switch trun off
-		 * */
-		k_sleep(1000);
+		rc = headset_move_dial_off_grid();
+		if ( 0 != rc )
+		{
+			headset_stock = -1;
+			SYS_LOG_ERR("Error at line: %d", __LINE__);
+			goto out;
+		}
 	}
 out:
-	/* stock counting done. */
-	SYS_LOG_DBG("Init done, count: %d\n", headset_stock);
 	/* Disable irq */
 	headset_dial_in_position_irq_disable();
 
 	/* Stop rotate dial */
 	headset_dial_rotate_enable_disable(0);
 
+	/* stock counting done. */
+	SYS_LOG_DBG("Init done, count: %d\n", headset_stock);
 	return rc;
 }
 
+/**
+ * @brief Initial all GPIOs that the headset may needed
+ * */
 static void headset_gpio_init(void)
 {
 	uint32_t temp;
@@ -450,17 +564,9 @@ int8_t headset_init(void)
 	headset_dial_in_position_irq_init();
 	headset_gpio_init();
 
-	while ( 1 )
-	{
-		uint32_t value;
-		gpio_comm_read(&headset_gpio_table[2], &value);
-		printk("Value = %d\n", value);
-		k_sleep(300);
-	}
 	k_sem_init(&headset_dial_in_position_sem, 0, 1);
 
-	headset_stock_init();
-	return 0;
+	return headset_stock_init();
 }
 
 #ifdef CONFIG_APP_HEADSET_FACTORY_TEST
