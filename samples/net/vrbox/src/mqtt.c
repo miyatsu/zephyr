@@ -46,7 +46,55 @@ static struct net_buf_pool *data_pool(void)
 {
 	return &mqtt_data_pool;
 }
-#endif
+#endif /* CONFIG_NET_CONTEXT_NET_PKT_POOL */
+
+/**
+ * This semaphore used to protect the publish_rx_cb_thread_stack below
+ * since this thread stack can ONLY be occupied by one particular thread
+ * */
+static K_SEM_DEFINE(publish_rx_cb_thread_stack_sem, 0, 1);
+
+static K_THREAD_STACK_DEFINE(publish_rx_cb_thread_stack, 1024);
+
+/**
+ * @brief Data parse functino entry point
+ *
+ * The publish_rx_cb will be called in system net parse thread, and the callback
+ * will block the system until it return. In case of blocking the system, we
+ * start a new thread instead processing data in current thread.
+ *
+ * @param arg1 Pointer point to received data
+ *
+ * @param arg2 The length of received data
+ *
+ * @param arg3 Inner semaphore to sync arg pass
+ * */
+static void publish_rx_cb_thread_entry_point(void *arg1, void *arg2, void *arg3)
+{
+	struct k_sem *sem = (struct k_sem*)arg3;
+
+	/* Message length */
+	uint16_t msg_len = *( (uint16_t *)arg2 );
+
+	/* Copy all data from net stack to app */
+	char *msg = k_malloc(msg_len);
+	if ( NULL == msg )
+	{
+		/* -ENOMEM */
+		k_sem_give(sem);
+		return ;
+	}
+	memcpy(msg, arg1, msg_len);
+
+	/* All data from net stack retrieve done, release sem */
+	k_sem_give(sem);
+
+	/* Start to parse app data */
+	json_cmd_parse(msg, msg_len);
+
+	/* App process done, release stack semaphore */
+	k_sem_give(&publish_rx_cb_thread_stack_sem);
+}
 
 static int publish_tx_cb(struct mqtt_ctx *ctx, uint16_t pkt_id,
 			enum mqtt_packet type)
@@ -54,10 +102,49 @@ static int publish_tx_cb(struct mqtt_ctx *ctx, uint16_t pkt_id,
 	return 0;
 }
 
+/**
+ * @brief MQTT message recevied callback
+ *
+ * Doc: Networking: IP Stack Architecture:
+ * The data processing in the application callback should be done fast in order
+ * not to block the system too long.
+ *
+ * Which means, if we want to process the data for a long time, we need start a
+ * new thread to achive that rather than processing the data at current thread.
+ *
+ * @param ctx MQTT context
+ *
+ * @param msg MQTT publish message structure
+ *
+ * @param pkt_id MQTT protocol defined, current not used
+ *
+ * @param type MQTT package type, current not used
+ *
+ * @return Must return 0 from now
+ * */
 static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 			uint16_t pkt_id, enum mqtt_packet type)
 {
-	json_cmd_parse(msg->msg, msg->msg_len);
+	if ( 0 != k_sem_take(&publish_rx_cb_thread_stack_sem, K_NO_WAIT) )
+	{
+		/**
+		 * Last command still in processing
+		 * We just drop current command without any notification
+		 * */
+		return 0;
+	}
+
+	static struct k_thread publish_rx_cb_thread_data;
+	struct k_sem sem;
+	k_sem_init(&sem, 0, 1);
+
+	k_thread_create(&publish_rx_cb_thread_data, publish_rx_cb_thread_stack,
+					K_THREAD_STACK_SIZEOF(publish_rx_cb_thread_stack),
+					publish_rx_cb_thread_entry_point,
+					(void*)msg->msg, (void*)&msg->msg_len, (void*)&sem,
+					0, 0, K_NO_WAIT);
+
+	k_sem_take(&sem, K_FOREVER);
 	return 0;
 }
 
