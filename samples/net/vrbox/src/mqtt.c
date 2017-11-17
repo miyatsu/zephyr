@@ -19,15 +19,34 @@
 #include <kernel.h>
 #include <net/mqtt.h>
 
-#define SYS_LOG_DOMAIN	"net_mqtt"
-#define SYS_LOG_LEVEL	SYS_LOG_LEVEL_DEBUG
-#include <logging/sys_log.h>
-
 #include "config.h"
+
+#define SYS_LOG_DOMAIN "net_mqtt"
+#ifdef CONFIG_APP_MQTT_DEBUG
+	#define SYS_LOG_LEVEL SYS_LOG_LEVEL_DEBUG
+#else
+	#define SYS_LOG_LEVEL SYS_LOG_LEVEL_WARNING
+#endif /* CONFIG_APP_MQTT_DEBUG */
+#include <logging/sys_log.h>
 
 static struct mqtt_ctx ctx;
 static struct mqtt_connect_msg connect_msg;
 static struct mqtt_publish_msg publish_msg;
+
+#ifdef CONFIG_NET_CONTEXT_NET_PKT_POOL
+NET_PKT_TX_SLAB_DEFINE(mqtt_tx_slab, 30);
+NET_PKT_DATA_POOL_DEFINE(mqtt_data_pool, 15);
+
+static struct k_mem_slab *tx_slab(void)
+{
+	return &mqtt_tx_slab;
+}
+
+static struct net_buf_pool *data_pool(void)
+{
+	return &mqtt_data_pool;
+}
+#endif
 
 static int publish_tx_cb(struct mqtt_ctx *ctx, uint16_t pkt_id,
 			enum mqtt_packet type)
@@ -38,11 +57,6 @@ static int publish_tx_cb(struct mqtt_ctx *ctx, uint16_t pkt_id,
 static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 			uint16_t pkt_id, enum mqtt_packet type)
 {
-	for ( uint16_t i = 0; i < msg->msg_len; ++i )
-	{
-		printk("%c", msg->msg[i]);
-	}
-	printk("\n");
 	json_cmd_parse(msg->msg, msg->msg_len);
 	return 0;
 }
@@ -65,6 +79,10 @@ static int unsubscribe_cb(struct mqtt_ctx *ctx, uint16_t pkt_id)
  * */
 static void init1(void)
 {
+#ifdef CONFIG_NET_CONTEXT_NET_PKT_POLL
+	ctx.net_app_ctx.tx_slab = tx_slab;
+	ctx.net_app_ctx.data_pool = data_pool;
+#endif
 	/* MQTT Context */
 	memset(&ctx, 0x00, sizeof(ctx));
 
@@ -184,18 +202,24 @@ static void mqtt_ping_thread_entry_point(void *arg1, void *arg2, void *arg3)
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
 
+	int rc;
+
 	while ( 1 )
 	{
-		/* Sleep five seconds, send ping reqeust to mqtt server */
-		k_sleep(1000 * 5);
+		/* Sleep 60 seconds, send ping reqeust to mqtt server */
+		k_sleep(1000 * 60);
 		if ( 0 != mqtt_tx_pingreq(&ctx) )
 		{
 			printk("WARNING: Ethernet cable broken, try to reconnect...!\n");
 			/* Release net buff */
-			mqtt_close(&ctx);
+			//mqtt_close(&ctx);
 
 			/* Re-initial */
-			app_mqtt_init_inner();
+			//rc = app_mqtt_init_inner();
+			//if ( 0 != rc )
+			//{
+			//	printk("Re initial error, return %d\n", rc);
+			//}
 		}
 	}
 }
