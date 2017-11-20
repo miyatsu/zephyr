@@ -18,10 +18,6 @@
 #include <misc/util.h>
 #include <pwm.h>
 
-#ifdef CONFIG_APP_AXLE_DEBUG
-#include <misc/printk.h>
-#endif /* CONFIG_APP_AXLE_DEBUG */
-
 #include "config.h"
 #include "gpio_comm.h"
 
@@ -294,13 +290,11 @@ static void axle_in_position_irq_cb(struct device *dev,
 	 * we only have to disable the rotate and disable the gpio interrupt.
 	 * */
 
-	printk("%s called\n", __func__);
 	uint32_t pin = 0;
 
 	/* Check if it really at certain position */
 	if ( 0 == axle_position_read() )
 	{
-		printk("This irq says that current axle not in position\n");
 		return ;
 	}
 
@@ -310,7 +304,6 @@ static void axle_in_position_irq_cb(struct device *dev,
 		pins >>= 1;
 		pin++;
 	}
-	printk("position == %d\n", pin - 1);
 
 	/* Position reached */
 
@@ -442,13 +435,11 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	uint8_t	axle_rotate_direction;
 	int8_t	axle_rotate_times;
 
-	uint16_t i;
 	int rc = 0;
 again:
 	/* Boundary check */
 	if (!( destination_position >= 1 && destination_position <= 7 ) )
 	{
-		printk("Error at LINE: %d\n", __LINE__);
 		return -1;
 	}
 
@@ -458,7 +449,6 @@ again:
 	/* Check position */
 	if ( !( axle_position >=1 && axle_position <= 7 ) )
 	{
-		printk("Error at LINE: %d, axle_position == %d\n", __LINE__, axle_position);
 		return -1;
 	}
 
@@ -472,7 +462,6 @@ again:
 	 * rotate direction depending on N and M.
 	 * */
 	axle_rotate_times = (int8_t)axle_position - (int8_t)destination_position;
-	printk("Rotate times == %d\n", axle_rotate_times);
 
 	/* Already at requested position ? */
 	if ( 0 == axle_rotate_times )
@@ -534,7 +523,6 @@ again:
 	if ( destination_position != axle_position_read() )
 	{
 		/* Destination not reached, do it again */
-		printk("Destination not reached, position = %d\n", axle_position_read());
 		goto again;
 	}
 	/* Axle rotate to correct position */
@@ -636,7 +624,6 @@ static int8_t axle_rotate_init(uint8_t direction)
 
 	SYS_LOG_DBG("Rotate init OK\n");
 
-	printk("Rotate_init done, position = %d\n", axle_position_read());
 	axle_status = true;
 
 	return 0;
@@ -679,11 +666,9 @@ int8_t axle_init(void)
 	/* Current axle already in position, no need to rotate */
 	if ( 0 != axle_position_read() )
 	{
-		printk("Current axle is in position!\n");
 		axle_status = true;
 		return 0;
 	}
-	printk("Current axle is NOT in position!\n");
 
 	/**
 	 * Rotate the axle to make the axle at one certain position
@@ -693,14 +678,14 @@ int8_t axle_init(void)
 	 * */
 	if ( 0 == axle_rotate_init(0) || 0 == axle_rotate_init(1) )
 	{
-		printk("Axle rotate init done!\n");
 		axle_status = true;
 		return 0;
 	}
 
-	printk("Can not reach the cerntain position\n");
 	SYS_LOG_ERR("Can not reach the certain position");
+
 	axle_status = false;
+
 	return -1;
 }
 
