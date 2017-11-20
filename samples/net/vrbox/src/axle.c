@@ -25,8 +25,12 @@
 #include "config.h"
 #include "gpio_comm.h"
 
-#define SYS_LOG_DOMAIN "axle"
-#define SYS_LOG_LEVEL SYS_LOG_LEVEL_DBG
+#define SYS_LOG_DOMAIN	"axle"
+#ifdef CONFIG_APP_AXLE_DEBUG
+	#define SYS_LOG_LEVEL	SYS_LOG_LEVEL_DBG
+#else
+	#define SYS_LOG_LEVEL	SYS_LOG_LEVEL_ERR
+#endif /* CONFIG_APP_AXLE_DEBUG */
 #include <logging/sys_log.h>
 
 /**
@@ -253,6 +257,13 @@ static bool axle_set_rotate_enable_disable(uint8_t enable)
  * */
 
 /**
+ * Due to asynchronous execution on main thread and axle in position
+ * irq, we use a wemaphore to synchronous two thread in order to
+ * execute next instruction in main thrad.
+ * */
+static struct k_sem axle_in_position_sem;
+
+/**
  * @brief Callback function when axle rotate to certain position
  *
  * @param dev Gpio device pointer
@@ -283,7 +294,15 @@ static void axle_in_position_irq_cb(struct device *dev,
 	 * we only have to disable the rotate and disable the gpio interrupt.
 	 * */
 
+	printk("%s called\n", __func__);
 	uint32_t pin = 0;
+
+	/* Check if it really at certain position */
+	if ( 0 == axle_position_read() )
+	{
+		printk("This irq says that current axle not in position\n");
+		return ;
+	}
 
 	/* Parse pin mask to pin number */
 	while ( 1 != pins )
@@ -291,12 +310,21 @@ static void axle_in_position_irq_cb(struct device *dev,
 		pins >>= 1;
 		pin++;
 	}
+	printk("position == %d\n", pin - 1);
+
+	/* Position reached */
 
 	/* Disable gpio interrupt */
 	gpio_pin_disable_callback(dev, pin);
 
 	/* Stop rotate */
 	axle_set_rotate_enable_disable(0);
+
+	/* Lock the break */
+	axle_set_rotate_lock_unlock(0);
+
+	/* Sync main handle thread and irq thread */
+	k_sem_give(&axle_in_position_sem);
 }
 
 /**
@@ -345,7 +373,7 @@ static void axle_in_position_irq_init(void)
 	 * The "struct gpio_callback" MUST NOT alloc in heap memory, so we declare it
 	 * as static and it will be link into .bss section.
 	 *
-	 * The "struct gpio_callback" can ONLY be initial ONECE by gpio_callback_init().
+	 * The "struct gpio_callback" can ONLY be initial ONCE by gpio_callback_init().
 	 *
 	 * If we use one loop to add all pins into one gpio_callback, we MUST assume
 	 * all seven pins are the same group.
@@ -414,15 +442,23 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	uint8_t	axle_rotate_direction;
 	int8_t	axle_rotate_times;
 
-	uint16_t i, wait_time_in_sec = CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC;
+	uint16_t i;
+	int rc = 0;
+again:
+	/* Boundary check */
+	if (!( destination_position >= 1 && destination_position <= 7 ) )
+	{
+		printk("Error at LINE: %d\n", __LINE__);
+		return -1;
+	}
 
 	/* Get current axle position */
 	axle_position = axle_position_read();
 
-	/* Boundary check */
-	if ( !( axle_position >=1 && axle_position <= 7 ) ||
-		 !( destination_position >= 1 && destination_position <= 7 ) )
+	/* Check position */
+	if ( !( axle_position >=1 && axle_position <= 7 ) )
 	{
+		printk("Error at LINE: %d, axle_position == %d\n", __LINE__, axle_position);
 		return -1;
 	}
 
@@ -436,6 +472,13 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	 * rotate direction depending on N and M.
 	 * */
 	axle_rotate_times = (int8_t)axle_position - (int8_t)destination_position;
+	printk("Rotate times == %d\n", axle_rotate_times);
+
+	/* Already at requested position ? */
+	if ( 0 == axle_rotate_times )
+	{
+		return 0;
+	}
 
 	/* Positive rotate clockwise, Negetive rotate anticlockwise */
 	axle_rotate_direction = axle_rotate_times > 0 ? 1 : 0;
@@ -443,12 +486,6 @@ int8_t axle_rotate_to(uint8_t destination_position)
 
 	/* Get ride of signed, since we already set rotate direction */
 	axle_rotate_times = axle_rotate_times >= 0 ? axle_rotate_times : -axle_rotate_times;
-
-	/* Already at requested position */
-	if ( 0 == axle_rotate_times )
-	{
-		return 0;
-	}
 
 	/**
 	 * At this point, we are not at destination position
@@ -462,45 +499,45 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	axle_set_rotate_lock_unlock(1);
 
 	/* Wait the break fully unlocked */
-	k_sleep(50);
+	//k_sleep(50);
+
+	k_sem_reset(&axle_in_position_sem);
 
 	/* Start to rotate axle */
 	axle_set_rotate_enable_disable(1);
 
-	for ( i = 0; i < ( wait_time_in_sec * 10 ) * axle_rotate_times; ++i )
-	{
-		/**
-		 * Polling axle position, check if it is reached the destination
-		 * position
-		 * */
-		if ( destination_position == axle_position_read() )
-		{
-			break;
-		}
-		k_sleep(100);
-	}
-
-	/* Stop rotate axle */
-	axle_set_rotate_enable_disable(0);
-
-	/* Wait the axle fully stoped */
-	k_sleep(50);
+	rc = k_sem_take(&axle_in_position_sem,
+			CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC * 1000 * axle_rotate_times);
 
 	/* Lock the axle break */
 	axle_set_rotate_lock_unlock(0);
 
+	/* Stop rotate axle */
+	axle_set_rotate_enable_disable(0);
+
 	/* Disable destination position's gpio irq */
 	axle_in_position_irq_disable(destination_position);
 
-	/* Axle rotate timeout */
-	if ( i >= ( wait_time_in_sec * 10 ) * axle_rotate_times )
+	if ( 0 != rc )
+	{
+		/* Semaphore take error */
+		axle_status = false;
+		return -1;
+	}
+
+	if ( 0 == axle_position_read() )
 	{
 		axle_status = false;
 		return -1;
 	}
 
+	if ( destination_position != axle_position_read() )
+	{
+		/* Destination not reached, do it again */
+		printk("Destination not reached, position = %d\n", axle_position_read());
+		goto again;
+	}
 	/* Axle rotate to correct position */
-	axle_status = true;
 	return 0;
 }
 
@@ -544,7 +581,7 @@ int8_t axle_rotate_to_next(void)
  * */
 static int8_t axle_rotate_init(uint8_t direction)
 {
-	uint16_t i, wait_time_in_sec = CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC;
+	uint8_t i, rc = 0;
 
 	/* Set direction signal */
 	axle_set_rotate_direction(direction);
@@ -561,29 +598,20 @@ static int8_t axle_rotate_init(uint8_t direction)
 		axle_in_position_irq_enable(i);
 	}
 
+	k_sem_reset(&axle_in_position_sem);
+	axle_status = true;
+
 	/* Enable axle */
 	axle_set_rotate_enable_disable(1);
 
-	for ( i = 0; i < wait_time_in_sec * 10; ++i )
-	{
-		/* Axle is in position */
-		if ( 0 != axle_position_read() )
-		{
-			break;
-		}
-
-		/* Axle is not in position, wait for more 100ms */
-		k_sleep(100);
-	}
-
-	/* Disable axle */
-	axle_set_rotate_enable_disable(0);
-
-	/* Wait the axle fully stoped */
-	k_sleep(50);
+	rc = k_sem_take(&axle_in_position_sem,
+				CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC * 1000);
 
 	/* Lock the axle */
 	axle_set_rotate_lock_unlock(0);
+
+	/* Disable axle */
+	axle_set_rotate_enable_disable(0);
 
 	/* Disable all position gpio irq */
 	for ( i = 1; i <= 7; ++i )
@@ -591,17 +619,26 @@ static int8_t axle_rotate_init(uint8_t direction)
 		axle_in_position_irq_disable(i);
 	}
 
-	/* Check for timeout */
-	if ( i >= wait_time_in_sec )
+	if ( 0 != rc )
 	{
-		/* Wait axle rotate to next position timeout */
+		/* Semaphore take error */
 		axle_status = false;
-		SYS_LOG_ERR("Rotate init ERROR\n");
+		SYS_LOG_ERR("Error at line: %d, rc = %d", __LINE__, rc);
+		return rc;
+	}
+
+	if ( 0 == axle_position_read() )
+	{
+		axle_status = false;
+		SYS_LOG_ERR("Error at line: %d, Can not read the position", __LINE__);
 		return -1;
 	}
 
-	SYS_LOG_DBG("Rotate init ok\n");
+	SYS_LOG_DBG("Rotate init OK\n");
+
+	printk("Rotate_init done, position = %d\n", axle_position_read());
 	axle_status = true;
+
 	return 0;
 }
 
@@ -637,12 +674,17 @@ int8_t axle_init(void)
 	/* Flush output and set the break locked */
 	axle_set_rotate_lock_unlock(0);
 
+	k_sem_init(&axle_in_position_sem, 0, 1);
+
 	/* Current axle already in position, no need to rotate */
 	if ( 0 != axle_position_read() )
 	{
+		printk("Current axle is in position!\n");
 		axle_status = true;
 		return 0;
 	}
+	printk("Current axle is NOT in position!\n");
+
 	/**
 	 * Rotate the axle to make the axle at one certain position
 	 *
@@ -651,10 +693,12 @@ int8_t axle_init(void)
 	 * */
 	if ( 0 == axle_rotate_init(0) || 0 == axle_rotate_init(1) )
 	{
+		printk("Axle rotate init done!\n");
 		axle_status = true;
 		return 0;
 	}
 
+	printk("Can not reach the cerntain position\n");
 	SYS_LOG_ERR("Can not reach the certain position");
 	axle_status = false;
 	return -1;
@@ -675,15 +719,16 @@ void axle_debug(void)
 {
 	int rc;
 	uint8_t i;
-	printk("Start to init...\n");
+	printk("[%s]: Start to init...\n", __func__);
 	if ( 0 != axle_init() )
 	{
-		printk("Init Error!\n");
+		printk("[%s]: Init Error!\n", __func__);
 	}
 	else
 	{
-		printk("Init OK\n");
+		printk("[%s]: Init OK\n", __func__);
 	}
+	k_sleep(2000);
 	while ( 1 )
 	{
 		printk("Start to rotate...\n");
@@ -699,7 +744,7 @@ void axle_debug(void)
 			{
 				printk("Rotate OK.\n");
 			}
-			k_sleep(1000);
+			k_sleep(2000);
 		}
 		k_sleep(2000);
 		for ( i = 7; i >= 1; --i )
@@ -714,9 +759,9 @@ void axle_debug(void)
 			{
 				printk("Rotate OK.\n");
 			}
-			k_sleep(1000);
+			k_sleep(2000);
 		}
-		k_sleep(1000);
+		k_sleep(2000);
 	}
 	return ;
 }
