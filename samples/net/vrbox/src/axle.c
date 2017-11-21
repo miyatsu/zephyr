@@ -162,8 +162,21 @@ static void axle_set_rotate_lock_unlock(uint8_t unlock)
 /**
  * @brief Set axle rotate direction
  *
- * @param direction 1 clockwise
- *					0 anticlockwise
+ * We assume the position 4 will be the center of the axle. Left side of the
+ * center, all three position will be 1, 2 and 3; right side of the center,
+ * all three position will be 5, 6 and 7. The vertical view are shown in the
+ * figure below:
+ *
+ * --------------------
+ * |       Center     |
+ * |    (A1)   (A7)   |
+ * |  (A2)       (A6) |
+ * |    (A3)   (A5)   |
+ * |        (A4)      |
+ * --------------------
+ *
+ * @param direction 1 clockwise/ascending order
+ *					0 anticlockwise/descending order
  * */
 static void axle_set_rotate_direction(uint8_t direction)
 {
@@ -207,7 +220,7 @@ static bool axle_set_rotate_enable_disable(uint8_t enable)
  * |    (A1)   (A7)   |
  * |  (A2)       (A6) |
  * |    (A3)   (A5)   |
- * |		(A4)      |
+ * |        (A4)      |
  * --------------------
  *  Figure: Axle
  *  Hardware Design
@@ -437,19 +450,23 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	int8_t	axle_rotate_times;
 
 	int i, rc = 0;
+
 again:
 	/* Boundary check */
 	if (!( destination_position >= 1 && destination_position <= 7 ) )
 	{
+		SYS_LOG_ERR("Out of range at line: %d", __LINE__);
 		return -1;
 	}
 
 	/* Get current axle position */
 	axle_position = axle_position_read();
 
-	/* Check position */
+	/* Check axle current position */
 	if ( !( axle_position >=1 && axle_position <= 7 ) )
 	{
+		SYS_LOG_ERR("Can not read current axle's position!");
+		axle_status = false;
 		return -1;
 	}
 
@@ -462,7 +479,7 @@ again:
 	 * axle from N position to M position, the rotate times will be |N-M|, the
 	 * rotate direction depending on N and M.
 	 * */
-	axle_rotate_times = (int8_t)axle_position - (int8_t)destination_position;
+	axle_rotate_times = (int8_t)destination_position - (int8_t)axle_position;
 
 	/* Already at requested position ? */
 	if ( 0 == axle_rotate_times )
@@ -470,7 +487,10 @@ again:
 		return 0;
 	}
 
-	/* Positive rotate clockwise, Negetive rotate anticlockwise */
+	/**
+	 * Positive rotate clockwise/ascending order
+	 * Negetive rotate anticlockwise/descending order
+	 * */
 	axle_rotate_direction = axle_rotate_times > 0 ? 1 : 0;
 	axle_set_rotate_direction(axle_rotate_direction);
 
@@ -481,6 +501,12 @@ again:
 	 * At this point, we are not at destination position
 	 * start rotate to destination position.
 	 * */
+
+	/* Disable all 7 gpio pin irq */
+	for ( i = 1; i <= 7; ++i )
+	{
+		axle_in_position_irq_disable(i);
+	}
 
 	/**
 	 * We could just enable the irq, and wait it trigger. But for unknow reasons,
@@ -524,6 +550,8 @@ again:
 	if ( i >= 1000 )
 	{
 		/* Move axle off grid timeout */
+		axle_status = false;
+		SYS_LOG_ERR("Move off grid timeout");
 		rc = -1;
 	}
 	else
@@ -560,50 +588,32 @@ again:
 	{
 		/* Move off grid timeout, or Semaphore take error */
 		axle_status = false;
+		SYS_LOG_ERR("Move off gride timeout or Semaphore take error, rc = %d", rc);
 		return -1;
 	}
 
 	if ( 0 == axle_position_read() )
 	{
 		axle_status = false;
+		SYS_LOG_ERR("Can not read axle position after success rotate.");
 		return -1;
 	}
 
 	if ( destination_position != axle_position_read() )
 	{
 		/* Destination not reached, do it again */
+
+		/**
+		 * This goto definitely will return eventually, with 0 position of
+		 * current axle position or timeout at semaphore take. Unless some
+		 * very serious error happened like unpredictable data inconsistency
+		 * when the signal cable have bad contact with sensors.
+		 * */
 		goto again;
 	}
+
 	/* Axle rotate to correct position */
 	return 0;
-}
-
-/**
- * @brief Rotate to next position
- *
- * This function is for administrator usage
- *
- * @return  0, rotate success
- *		   -1, rotate error
- * */
-int8_t axle_rotate_to_next(void)
-{
-	uint8_t axle_position = axle_position_read();
-
-	/* Can not read the position */
-	if ( 0 == axle_position )
-	{
-		return -1;
-	}
-	/* Already at the last position */
-	else if ( 7 == axle_position )
-	{
-		return 0;
-	}
-	else
-	{
-		return axle_rotate_to(axle_position + 1);
-	}
 }
 
 /**
@@ -627,7 +637,7 @@ static int8_t axle_rotate_init(uint8_t direction)
 	axle_set_rotate_lock_unlock(1);
 
 	/* Wait the lock fully unlocked */
-	k_sleep(50);
+	k_sleep(200);
 
 	/* Enable gpio irq */
 	for ( i = 1; i <= 7; ++i )
@@ -635,7 +645,10 @@ static int8_t axle_rotate_init(uint8_t direction)
 		axle_in_position_irq_enable(i);
 	}
 
+	/* Reset semaphore in case of we can not wait the incoming irq */
 	k_sem_reset(&axle_in_position_sem);
+
+	/* Default axle status is fine */
 	axle_status = true;
 
 	/* Enable axle */
