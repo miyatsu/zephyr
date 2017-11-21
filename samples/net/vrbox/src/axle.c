@@ -254,8 +254,9 @@ static bool axle_set_rotate_enable_disable(uint8_t enable)
 
 /**
  * Due to asynchronous execution on main thread and axle in position
- * irq, we use a wemaphore to synchronous two thread in order to
- * execute next instruction in main thrad.
+ * irq, we use a semaphore to synchronous two thread in order to
+ * execute next instruction in main thrad(e.g. Check if the axle is already
+ * move to the position we want).
  * */
 static struct k_sem axle_in_position_sem;
 
@@ -435,7 +436,7 @@ int8_t axle_rotate_to(uint8_t destination_position)
 	uint8_t	axle_rotate_direction;
 	int8_t	axle_rotate_times;
 
-	int rc = 0;
+	int i, rc = 0;
 again:
 	/* Boundary check */
 	if (!( destination_position >= 1 && destination_position <= 7 ) )
@@ -481,22 +482,70 @@ again:
 	 * start rotate to destination position.
 	 * */
 
-	/* Enable destination position's gpio irq */
-	axle_in_position_irq_enable(destination_position);
+	/**
+	 * We could just enable the irq, and wait it trigger. But for unknow reasons,
+	 * we find that the position 3 is related to position 1 and 2 somehow. There
+	 * may be more unknow positions detector pins related to each other.
+	 *
+	 * Assume: If the axle current at position 3, and this function called with
+	 * param destination_position = 1. First we enable irq of position 1, then
+	 * start to rotate.
+	 *
+	 * Result: As we explained above, the position 3 is related to positoin 1 and
+	 * 2 somehow. If the axle rotate to position 1 from position 3 with irq enable
+	 * on position 1, it MAY trigger the position 1's irq when the axle just move
+	 * out of position 3.
+	 *
+	 * That is to say, we trigger the position 1's irq at position 3 rising edge.
+	 * In irq handler, we will check the current axle position to make sure the
+	 * axle is really at certain position. With this kind of bug, we can not trust
+	 * irq handler's result.
+	 *
+	 * Fix Plan: Move out of position before enable any position related irqs.
+	 *
+	 * */
 
 	/* Unlock the axle break */
 	axle_set_rotate_lock_unlock(1);
 
-	/* Wait the break fully unlocked */
-	//k_sleep(50);
-
-	k_sem_reset(&axle_in_position_sem);
-
 	/* Start to rotate axle */
 	axle_set_rotate_enable_disable(1);
 
-	rc = k_sem_take(&axle_in_position_sem,
-			CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC * 1000 * axle_rotate_times);
+	/* Move axle off grid, make it not point at any position */
+	for ( i = 0; i < CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC * 1000; ++i )
+	{
+		if ( 0 == axle_position_read() )
+		{
+			break;
+		}
+		k_sleep(100);
+	}
+
+	if ( i >= 1000 )
+	{
+		/* Move axle off grid timeout */
+		rc = -1;
+	}
+	else
+	{
+		/**
+		 * The axle now not in position,
+		 * at this point, we can enable irq and wait it trigger
+		 * */
+
+		/* Debounce by wait more time, in case of irq triggerd by accident */
+		k_sleep(200);
+
+		/* Reset semaphore */
+		k_sem_reset(&axle_in_position_sem);
+
+		/* Enable irq */
+		axle_in_position_irq_enable(destination_position);
+
+		/* Wait the irq trigger */
+		rc = k_sem_take(&axle_in_position_sem,
+				CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC * 1000 * axle_rotate_times);
+	}
 
 	/* Lock the axle break */
 	axle_set_rotate_lock_unlock(0);
@@ -509,7 +558,7 @@ again:
 
 	if ( 0 != rc )
 	{
-		/* Semaphore take error */
+		/* Move off grid timeout, or Semaphore take error */
 		axle_status = false;
 		return -1;
 	}
@@ -675,6 +724,10 @@ int8_t axle_init(void)
 	 *
 	 * If rotate anticlockwise may reach the limitation of rotate
 	 * angles, then try to rotate clockwise
+	 * */
+	/**
+	 * FIXME If rotate towards lower position, reach the position 7
+	 * or rotate wowards higher position, reach the position 1 ?
 	 * */
 	if ( 0 == axle_rotate_init(0) || 0 == axle_rotate_init(1) )
 	{
