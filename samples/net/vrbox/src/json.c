@@ -26,6 +26,7 @@ static const char *cmd_table[] =
 	/* in cmd */
 	"get_status",
 	"open",
+	"close",
 	"admin_fetch",
 	"admin_rotate",
 	"admin_close",
@@ -184,17 +185,23 @@ int8_t do_cmd_open(uint8_t layer, uint8_t position)
 		return rc;
 	}
 
-	/* Wait use take out or put in the cargo */
-	k_sleep(5000);
+	/* Every thing is fine */
+	return 0;
+}
 
-	/* Close the door */
+int8_t do_cmd_close(uint8_t layer, uint8_t position)
+{
+	int rc;
+
+	ARG_UNUSED(position);
 	rc = door_close(layer);
 	if ( 0 != rc )
 	{
 		return rc;
 	}
 
-	/* Every things fine */
+	/* TODO Error code design, check infrared detector status */
+	/* Every thing is fine */
 	return 0;
 }
 
@@ -223,6 +230,36 @@ static void run_cmd_open(JSON_Value *root_in, JSON_Value *root_out)
 	else
 	{
 		json_object_set_string(json_object(root_out), "cmd", "open_error");
+	}
+
+	out_json_comm(root_in, root_out);
+}
+
+static void run_cmd_close(JSON_Value *root_in, JSON_Value *root_out)
+{
+	uint8_t position, layer;
+
+	position = json_object_get_number(json_object(root_in), "position");
+	if ( !(position >= 1 && position <= 7) )
+	{
+		/* Error handling */
+		return ;
+	}
+
+	layer = json_object_get_number(json_object(root_in), "layer");
+	if ( !(layer >= 1 && layer <= 4) )
+	{
+		/* Error handling */
+		return ;
+	}
+
+	if ( 0 == do_cmd_close(layer, position) )
+	{
+		json_object_set_string(json_object(root_out), "cmd", "close_ok");
+	}
+	else
+	{
+		json_object_set_string(json_object(root_out), "cmd", "close_error");
 	}
 
 	out_json_comm(root_in, root_out);
@@ -326,7 +363,7 @@ int json_cmd_parse(uint8_t *msg, uint16_t msg_len)
 	memcpy(buff, msg, msg_len);
 	buff[msg_len] = 0;
 
-	SYS_LOG_DBG("[%d]%s", k_uptime_get_32()/1000, buff);
+	SYS_LOG_DBG("%s", buff);
 
 	/* Start to parse json, the memory will free at each switch function */
 	root_in = json_parse_string(buff);
@@ -382,6 +419,9 @@ int json_cmd_parse(uint8_t *msg, uint16_t msg_len)
 			break;
 		case CMD_OPEN:
 			run_cmd_open(root_in, root_out);
+			break;
+		case CMD_CLOSE:
+			run_cmd_close(root_in, root_out);
 			break;
 		case CMD_ADMIN_FETCH:
 			run_cmd_admin_fetch(root_in, root_out);
