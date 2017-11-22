@@ -701,6 +701,7 @@ static int8_t axle_rotate_init(uint8_t direction)
 int8_t axle_init(void)
 {
 	uint8_t i;
+	int rc;
 	uint32_t temp;
 
 	axle_in_position_irq_init();
@@ -738,21 +739,26 @@ int8_t axle_init(void)
 	 * If rotate anticlockwise may reach the limitation of rotate
 	 * angles, then try to rotate clockwise
 	 * */
+
+	/* Rotate anticlockwise/descending order */
+	rc = axle_rotate_init(0);
+
 	/**
-	 * FIXME If rotate towards lower position, reach the position 7
-	 * or rotate wowards higher position, reach the position 1 ?
+	 * Ignore return code above, just rotate to another direction.
+	 * This will make the axle not rotate never beyond the limit rotate angle
 	 * */
-	if ( 0 == axle_rotate_init(0) || 0 == axle_rotate_init(1) )
+
+	/* Rotate clockwise/ascending order */
+	rc = axle_rotate_init(1);
+	if ( 0 != rc )
 	{
-		axle_status = true;
-		return 0;
+		SYS_LOG_ERR("Initial axle position faild, rc = %d", rc);
+		axle_status = false;
+		return -1;
 	}
 
-	SYS_LOG_ERR("Can not reach the certain position");
-
-	axle_status = false;
-
-	return -1;
+	axle_status = true;
+	return 0;
 }
 
 #ifdef CONFIG_APP_AXLE_FACTORY_TEST
