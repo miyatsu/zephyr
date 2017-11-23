@@ -52,7 +52,7 @@ static struct net_buf_pool *data_pool(void)
  * This semaphore used to protect the publish_rx_cb_thread_stack below
  * since this thread stack can ONLY be occupied by one particular thread
  * */
-static K_SEM_DEFINE(publish_rx_cb_thread_stack_sem, 0, 1);
+static K_SEM_DEFINE(publish_rx_cb_thread_stack_sem, 1, 1);
 
 static K_THREAD_STACK_DEFINE(publish_rx_cb_thread_stack, 1024);
 
@@ -91,6 +91,9 @@ static void publish_rx_cb_thread_entry_point(void *arg1, void *arg2, void *arg3)
 
 	/* Start to parse app data */
 	json_cmd_parse(msg, msg_len);
+
+	/* Do release the allocated memory */
+	k_free(msg);
 
 	/* App process done, release stack semaphore */
 	k_sem_give(&publish_rx_cb_thread_stack_sem);
@@ -247,7 +250,7 @@ static int init2(void)
 		SYS_LOG_DBG("SUB to topics error, return %d", rc);
 		return rc;
 	}
-	SYS_LOG_DBG("SUB to topics OK")
+	SYS_LOG_DBG("SUB to topics OK");
 
 	/* MQTT connection ok, subscribe topic ok. */
 	SYS_LOG_DBG("MQTT initial OK!");
