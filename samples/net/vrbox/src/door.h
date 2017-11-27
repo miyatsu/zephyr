@@ -40,24 +40,27 @@ const bool* door_get_status(void);
  *
  * @param layer Door number, [1-4] is expected
  *
- * @return -1 Door has never opened
- *			0 Door has fully opened
- *		   -2 Door open timeout, and leave it half open
+ * @return	 0 Door has fully opened
+ *			-1 Door open timeout
+ *			-2 Door never opened
+ *			-3 Door half opened
+ *			-4 Door is at opened AND closed state, impossible
  * */
-int8_t door_open(uint8_t layer);
+int door_open(uint8_t layer);
 
 /**
  * @brief Public wrapper function of door close
  *
  * @param layer Door number, [1-4] is expected
  *
- * @return -3 Door has never close after timeout
- *		   -2 Door has been blocked by something which detected by on
- *			  door infrared detector
- *		   -1 Door close timeout, and leave it half close
- *			0 Door has fully closed
+ * @return	 1 On door infrared detected
+ *			 0 Door has fully closed
+ *			-1 Door close timeout
+ *			-2 Door never closed
+ *			-3 Door half closed
+ *			-4 Door is at opened AND closed state, impossible
  * */
-int8_t door_close(uint8_t layer);
+int door_close(uint8_t layer);
 
 /**
  * @brief Open all four doors at a time
