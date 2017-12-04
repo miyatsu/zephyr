@@ -21,19 +21,12 @@
 
 #include "config.h"
 
-#define SYS_LOG_DOMAIN "net_mqtt"
-#ifdef CONFIG_APP_MQTT_DEBUG
-	#define SYS_LOG_LEVEL SYS_LOG_LEVEL_DEBUG
-#else
-	#define SYS_LOG_LEVEL SYS_LOG_LEVEL_WARNING
-#endif /* CONFIG_APP_MQTT_DEBUG */
-#include <logging/sys_log.h>
-
 static struct mqtt_ctx ctx;
 static struct mqtt_connect_msg connect_msg;
 static struct mqtt_publish_msg publish_msg;
 
 #ifdef CONFIG_NET_CONTEXT_NET_PKT_POOL
+
 NET_PKT_TX_SLAB_DEFINE(mqtt_tx_slab, 30);
 NET_PKT_DATA_POOL_DEFINE(mqtt_data_pool, 15);
 
@@ -46,6 +39,7 @@ static struct net_buf_pool *data_pool(void)
 {
 	return &mqtt_data_pool;
 }
+
 #endif /* CONFIG_NET_CONTEXT_NET_PKT_POOL */
 
 /**
@@ -54,7 +48,7 @@ static struct net_buf_pool *data_pool(void)
  * */
 static K_SEM_DEFINE(publish_rx_cb_thread_stack_sem, 1, 1);
 
-static K_THREAD_STACK_DEFINE(publish_rx_cb_thread_stack, 1024);
+static K_THREAD_STACK_DEFINE(publish_rx_cb_thread_stack, 4096);
 
 /**
  * @brief Data parse functino entry point
@@ -71,23 +65,13 @@ static K_THREAD_STACK_DEFINE(publish_rx_cb_thread_stack, 1024);
  * */
 static void publish_rx_cb_thread_entry_point(void *arg1, void *arg2, void *arg3)
 {
-	struct k_sem *sem = (struct k_sem*)arg3;
+	/* Message address in heap */
+	char *msg = (char *)arg1;
 
 	/* Message length */
-	uint16_t msg_len = *( (uint16_t *)arg2 );
+	uint16_t msg_len = *((uint16_t *)arg2);
 
-	/* Copy all data from net stack to app */
-	char *msg = k_malloc(msg_len);
-	if ( NULL == msg )
-	{
-		/* -ENOMEM */
-		k_sem_give(sem);
-		return ;
-	}
-	memcpy(msg, arg1, msg_len);
-
-	/* All data from net stack retrieve done, release sem */
-	k_sem_give(sem);
+	ARG_UNUSED(arg3);
 
 	/* Start to parse app data */
 	json_cmd_parse(msg, msg_len);
@@ -138,16 +122,39 @@ static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 	}
 
 	static struct k_thread publish_rx_cb_thread_data;
-	struct k_sem sem;
-	k_sem_init(&sem, 0, 1);
+	static uint16_t msg_len = 0;
+	static char *heap_msg = NULL;
 
+	/* Message length */
+	msg_len = msg->msg_len;
+
+	/* Alloc space at heap, to store incomming message */
+	heap_msg = k_malloc(msg_len + 1);
+	if ( NULL == heap_msg )
+	{
+		NET_ERR("No memory at line: %d", __LINE__);
+
+		/* Release thread stack semaphore */
+		k_sem_give(&publish_rx_cb_thread_stack_sem);
+		return 0;
+	}
+
+	/* Copy memory into application heap */
+	memcpy(heap_msg, msg->msg, msg->msg_len);
+
+	/* Command processing thread */
 	k_thread_create(&publish_rx_cb_thread_data, publish_rx_cb_thread_stack,
 					K_THREAD_STACK_SIZEOF(publish_rx_cb_thread_stack),
 					publish_rx_cb_thread_entry_point,
-					(void*)msg->msg, (void*)&msg->msg_len, (void*)&sem,
+					(void*)heap_msg, (void*)&msg_len, (void*)NULL,
 					0, 0, K_NO_WAIT);
 
-	k_sem_take(&sem, K_FOREVER);
+	/**
+	 * We pass msg its own into k_thread_create,
+	 * not its address, so we can reset its value to NULL
+	 * */
+	heap_msg = NULL;
+
 	return 0;
 }
 
@@ -226,10 +233,10 @@ static int init2(void)
 		if ( 0 == rc )
 		{
 			/* Connect success */
-			SYS_LOG_DBG("TCP connect OK");
+			NET_ERR("TCP connect OK");
 			break;
 		}
-		SYS_LOG_DBG("TCP connect error, return: %d, retry times: %d", rc, i + 1);
+		NET_ERR("TCP connect error, return: %d, retry times: %d", rc, i + 1);
 	}
 
 	/* No need to check the TCP connected or not */
@@ -238,22 +245,22 @@ static int init2(void)
 	rc = mqtt_tx_connect(&ctx, &connect_msg);
 	if ( 0 != rc )
 	{
-		SYS_LOG_DBG("MQTT connect error, return %d", rc);
+		NET_ERR("MQTT connect error, return %d", rc);
 		return rc;
 	}
-	SYS_LOG_DBG("MQTT connect OK");
+	NET_ERR("MQTT connect OK");
 
 	/* Subscribe to srv/controller */
 	rc = mqtt_tx_subscribe(&ctx, sys_rand32_get(), 1, topics, topics_qos);
 	if ( 0 != rc )
 	{
-		SYS_LOG_DBG("SUB to topics error, return %d", rc);
+		NET_ERR("SUB to topics error, return %d", rc);
 		return rc;
 	}
-	SYS_LOG_DBG("SUB to topics OK");
+	NET_ERR("SUB to topics OK");
 
 	/* MQTT connection ok, subscribe topic ok. */
-	SYS_LOG_DBG("MQTT initial OK!");
+	NET_ERR("MQTT initial OK!");
 	return 0;
 }
 
@@ -336,6 +343,7 @@ int net_mqtt_init(void)
 
 int mqtt_msg_send(const char *buff)
 {
+	printk("%s\n", buff);
 	int rc = 0, i;
 
 	publish_msg.msg = buff;
@@ -350,8 +358,7 @@ int mqtt_msg_send(const char *buff)
 			/* Send success */
 			return 0;
 		}
-		printk("[%s][%d] Send error, rc = %d\n", __func__, __LINE__, rc);
-		SYS_LOG_DBG("message send error, return: %d, retry times: %d", rc, i + 1);
+		NET_ERR("message send error, return: %d, retry times: %d", rc, i + 1);
 
 		/* Release mqtt net buff */
 		mqtt_close(&ctx);
@@ -360,7 +367,7 @@ int mqtt_msg_send(const char *buff)
 		app_mqtt_init_inner();
 	}
 
-	SYS_LOG_DBG("reconnect and send error, rc = %d", rc);
+	NET_ERR("reconnect and send error, rc = %d", rc);
 
 	return rc;
 }
