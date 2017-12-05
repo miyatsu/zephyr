@@ -42,46 +42,38 @@ static struct net_buf_pool *data_pool(void)
 
 #endif /* CONFIG_NET_CONTEXT_NET_PKT_POOL */
 
-/**
- * This semaphore used to protect the publish_rx_cb_thread_stack below
- * since this thread stack can ONLY be occupied by one particular thread
- * */
-static K_SEM_DEFINE(publish_rx_cb_thread_stack_sem, 1, 1);
-
-static K_THREAD_STACK_DEFINE(publish_rx_cb_thread_stack, 4096);
-
-/**
- * @brief Data parse functino entry point
- *
- * The publish_rx_cb will be called in system net parse thread, and the callback
- * will block the system until it return. In case of blocking the system, we
- * start a new thread instead processing data in current thread.
- *
- * @param arg1 Pointer point to received data
- *
- * @param arg2 The length of received data
- *
- * @param arg3 Inner semaphore to sync arg pass
- * */
-static void publish_rx_cb_thread_entry_point(void *arg1, void *arg2, void *arg3)
+typedef struct data_item_s
 {
-	/* Message address in heap */
-	char *msg = (char *)arg1;
+	void *fifo_reserved;
+	char *buff;
+	size_t buff_size;
+}data_item_t;
 
-	/* Message length */
-	uint16_t msg_len = *((uint16_t *)arg2);
+K_FIFO_DEFINE(dispatch_fifo);
 
-	ARG_UNUSED(arg3);
+void dispatch_thread_entry_point(void *arg1, void *arg2, void *arg3)
+{
+	data_item_t *item = NULL;
 
-	/* Start to parse app data */
-	json_cmd_parse(msg, msg_len);
+	while ( true )
+	{
+		item = k_fifo_get(&dispatch_fifo, K_FOREVER);
+		if ( NULL == item )
+		{
+			/* Error handling */
+			continue;
+		}
 
-	/* Do release the allocated memory */
-	k_free(msg);
+		json_cmd_parse(item->buff, item->buff_size);
 
-	/* App process done, release stack semaphore */
-	k_sem_give(&publish_rx_cb_thread_stack_sem);
+		k_free(item->buff);
+		k_free(item);
+	}
 }
+
+K_THREAD_DEFINE(dispatch_tid, 2048,
+				dispatch_thread_entry_point, NULL, NULL, NULL,
+				0, 0, K_NO_WAIT);
 
 static int publish_tx_cb(struct mqtt_ctx *ctx, uint16_t pkt_id,
 			enum mqtt_packet type)
@@ -112,50 +104,29 @@ static int publish_tx_cb(struct mqtt_ctx *ctx, uint16_t pkt_id,
 static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 			uint16_t pkt_id, enum mqtt_packet type)
 {
-	if ( 0 != k_sem_take(&publish_rx_cb_thread_stack_sem, K_NO_WAIT) )
+	if ( MQTT_PUBLISH != type )
 	{
-		/**
-		 * Last command still in processing
-		 * We just drop current command without any notification
-		 * */
-		return 0;
+		NET_ERR("Current packet is not pub message, type = %d", type);
 	}
 
-	static struct k_thread publish_rx_cb_thread_data;
-	static uint16_t msg_len = 0;
-	static char *heap_msg = NULL;
+	data_item_t *item = NULL;
 
-	/* Message length */
-	msg_len = msg->msg_len;
-
-	/* Alloc space at heap, to store incomming message */
-	heap_msg = k_malloc(msg_len + 1);
-	if ( NULL == heap_msg )
+	item = k_malloc(sizeof(data_item_t));
+	if ( NULL == item )
 	{
-		NET_ERR("No memory at line: %d", __LINE__);
-
-		/* Release thread stack semaphore */
-		k_sem_give(&publish_rx_cb_thread_stack_sem);
-		return 0;
+		return -ENOMEM;
 	}
 
-	/* Copy memory into application heap */
-	memcpy(heap_msg, msg->msg, msg->msg_len);
+	item->buff_size = msg->msg_len;
+	item->buff = k_malloc(item->buff_size);
+	if ( NULL == item->buff )
+	{
+		return -ENOMEM;
+	}
 
-	/* Command processing thread */
-	k_thread_create(&publish_rx_cb_thread_data, publish_rx_cb_thread_stack,
-					K_THREAD_STACK_SIZEOF(publish_rx_cb_thread_stack),
-					publish_rx_cb_thread_entry_point,
-					(void*)heap_msg, (void*)&msg_len, (void*)NULL,
-					0, 0, K_NO_WAIT);
+	memcpy(item->buff, msg->msg, item->buff_size);
 
-	/**
-	 * We pass msg its own into k_thread_create,
-	 * not its address, so we can reset its value to NULL
-	 * */
-	heap_msg = NULL;
-
-	return 0;
+	k_fifo_put(&dispatch_fifo, item);
 }
 
 static int subscribe_cb(struct mqtt_ctx *ctx, uint16_t pkt_id,
@@ -206,7 +177,7 @@ static void init1(void)
 	/* Publish message */
 	memset(&publish_msg, 0x00, sizeof(publish_msg));
 
-	publish_msg.qos = MQTT_QoS0;
+	publish_msg.qos = MQTT_QoS2;
 	publish_msg.topic = CONFIG_APP_MQTT_PUBLISH_TOPIC;
 	publish_msg.topic_len = strlen(CONFIG_APP_MQTT_PUBLISH_TOPIC);
 }
