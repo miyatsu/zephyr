@@ -19,28 +19,12 @@
 #include <kernel.h>
 #include <net/mqtt.h>
 
+#include "net_app_buff.h"
 #include "config.h"
 
 static struct mqtt_ctx ctx;
 static struct mqtt_connect_msg connect_msg;
 static struct mqtt_publish_msg publish_msg;
-
-#ifdef CONFIG_NET_CONTEXT_NET_PKT_POOL
-
-NET_PKT_TX_SLAB_DEFINE(mqtt_tx_slab, 30);
-NET_PKT_DATA_POOL_DEFINE(mqtt_data_pool, 15);
-
-static struct k_mem_slab *tx_slab(void)
-{
-	return &mqtt_tx_slab;
-}
-
-static struct net_buf_pool *data_pool(void)
-{
-	return &mqtt_data_pool;
-}
-
-#endif /* CONFIG_NET_CONTEXT_NET_PKT_POOL */
 
 typedef struct data_item_s
 {
@@ -148,8 +132,7 @@ static int unsubscribe_cb(struct mqtt_ctx *ctx, uint16_t pkt_id)
 static void init1(void)
 {
 #ifdef CONFIG_NET_CONTEXT_NET_PKT_POLL
-	ctx.net_app_ctx.tx_slab = tx_slab;
-	ctx.net_app_ctx.data_pool = data_pool;
+	net_app_set_net_pkt_pool(&ctx.net_app_ctx, app_tx_slab, app_data_pool);
 #endif
 	/* MQTT Context */
 	memset(&ctx, 0x00, sizeof(ctx));
