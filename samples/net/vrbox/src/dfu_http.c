@@ -49,90 +49,80 @@ static void http_response_cb(struct http_ctx *http_ctx,
 		uint8_t *data, size_t buf_len, size_t data_len,
 		enum http_final_call data_end, void *user_data_arg)
 {
-	int			rc;
-	printk("Message comming: body_start = %d\n", http_ctx->http.rsp.body_start?1:0);
-	for ( int i = 0; i < data_len; ++i )
-	{
-		printk("%c", data[i]);
-	}
-	printk("\n");
-	return ;
+	int rc = 0;
+
 	/* Use to mark the body position */
-	uint8_t *	body_start;
-	size_t		body_len;
+	uint8_t *	body_start	= NULL;
+	size_t		body_len	= 0;
 
 	/* User data */
 	struct http_user_data *http_user_data;
 
 	http_user_data = (struct http_user_data *)user_data_arg;
 
-	/* Mark the body position */
 	if ( NULL != http_ctx->http.rsp.body_start )
 	{
-		/* This fragment contains http headers */
+		/**
+		 * Current fragment contains head field and body field,
+		 * the body_start point to the body start position.
+		 * */
 		body_start	= http_ctx->http.rsp.body_start;
 		body_len	= data_len - ( body_start - data );
-
-		/**
-		 * In http_client.c, there is no reset ops on body_start
-		 * field. We need reset it to the start of buffer. Pull
-		 * request is under going at:
-		 * https://github.com/zephyrproject-rtos/zephyr/pull/4550
-		 *
-		 * If this block is running once, the next running will
-		 * not contains the http headers. So we just move the
-		 * body_start to the very beginning of the recv buffer.
-		 * */
-		//http_ctx->rsp.body_start = data;
 	}
 	else
 	{
+		/**
+		 * If the body_start equal to NULL,
+		 * that means the whole fragment will all be body field with no other
+		 * field like head.
+		 * */
 		body_start	= data;
 		body_len	= data_len;
 	}
 
-	rc = flash_img_buffered_write(http_user_data->flash_img_ctx,
-					body_start, body_len, data_end);
-	if ( 0 != rc && 0 == http_user_data->rc_flash_img )
-	{
-		/**
-		 * Flash write error handle
-		 *
-		 * Do not exit, wait http transfer complete
-		 * */
-		http_user_data->rc_flash_img = rc;
-	}
-
-	/* Transfer not complete */
 	if ( HTTP_DATA_MORE == data_end )
 	{
-		/* Just return, wait for next package */
+		rc = flash_img_buffered_write(http_user_data->flash_img_ctx,
+					body_start, body_len, 0);
+		if ( 0 != rc && 0 == http_user_data->rc_flash_img )
+		{
+			/* Flash write error, do NOT abort until http transfer complete */
+			http_user_data->rc_flash_img = rc;
+			SYS_LOG_ERR("Write flash error, return: rc = %d", rc);
+		}
 		return ;
 	}
 
-	/* Transmision complete */
+	/* Last fragment is comming */
+
+	/**
+	 * Save the last body to flash
+	 *
+	 * Note: The last fragment may NOT contian a body, but we still call
+	 * this flash_img_buffered_write. If this fragment did not carry a body,
+	 * then the body_len will be 0, pass 0 into this function will cause no
+	 * effects on write flash.
+	 * */
+	rc = flash_img_buffered_write(http_user_data->flash_img_ctx,
+				body_start, body_len, 1);
+	if ( 0 != rc && 0 == http_user_data->rc_flash_img )
+	{
+		http_user_data->rc_flash_img = rc;
+		SYS_LOG_ERR("Write flash error, return: rc = %d", rc);
+	}
 
 	/* Check http parse result */
 	if ( HPE_OK != http_ctx->http.parser.http_errno )
 	{
-		/**
-		 * HTTP format parse error
-		 *
-		 * We can get error message using:
-		 *
-		 * (a). const char *http_error_name();
-		 * (b). const char *http_error_description();
-		 * */
 		http_user_data->rc_http_parse = http_ctx->http.parser.http_errno;
+		SYS_LOG_ERR("HTTP parser status: %s",
+				http_errno_description(http_ctx->http.parser.http_errno));
 	}
 
 	/**
-	 * Here we just ignore all other checks.
-	 *
-	 * Because we don't give a shit about it, we have other
-	 * ways to check if the firmware valid or not.
+	 * Ignore all other checks, because we don't care about it.
+	 * We have other ways to check if the firmware valid or not.
 	 * */
-
 	k_sem_give(&http_user_data->sem);
 }
 
@@ -347,7 +337,7 @@ out:
 
 void dfu_debug(void)
 {
-	char uri[] = "http://192.168.0.181/index.html";
+	char uri[] = "http://172.16.0.1/screen/index.html";
 
 	dfu_http_download(uri, sizeof(uri) - 1);
 	while ( 1 )
