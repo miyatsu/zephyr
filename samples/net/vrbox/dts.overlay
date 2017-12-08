@@ -1,0 +1,12 @@
+/*
+ * Basic Device Tree overlay file for chain-loading by mcuboot.
+ * See the Makefile for more information.
+ */
+
+/ {
+	chosen {
+#if defined(CONFIG_IMG_MANAGER)
+		zephyr,code-partition = &slot0_partition;
+#endif
+	};
+};
