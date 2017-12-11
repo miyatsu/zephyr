@@ -20,6 +20,7 @@
 menuconfig MBEDTLS
 	bool
 	prompt "mbedTLS Support"
+	select MBEDTLS_BUILTIN
 	default n
 	help
 	  This option enables the mbedTLS cryptography library.
