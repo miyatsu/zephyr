@@ -5,8 +5,7 @@
 extern "C" {
 #endif /* __cplusplus */
 
-extern int _prf(int (*func)(), void *dest,
-				const char *format, va_list vargs);
+void sys_log_hook_func(const char *format, ...);
 
 #ifdef __cplusplus
 }
