@@ -33,6 +33,18 @@ extern "C" {
  * */
 int dfu_http_download(const char *uri, size_t uri_len);
 
+/**
+ * @brief Check if the downloaded firmware match the given md5 value
+ *
+ * @param firmware_size Firmware size that downloaded
+ *
+ * @param md5_str The firmware remote md5 string
+ *
+ * @return 0 Local md5 value match the remote md5 value
+ *		  -1 Local md5 value NOT match the remote md5 value
+ * */
+int dfu_md5_check(size_t firmware_size, const char *md5_str);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

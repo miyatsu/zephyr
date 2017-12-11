@@ -10,6 +10,7 @@
  * @date 15:02:41 December 6, 2017 GTM+8
  *
  * */
+#include <stdio.h>
 #include <stdint.h>
 #include <errno.h>
 
@@ -17,6 +18,8 @@
 #include <net/http.h>
 
 #include <dfu/flash_img.h>
+
+/*#include "mbedtls/md5.h"*/
 
 #include "net_app_buff.h"
 #include "config.h"
@@ -42,6 +45,7 @@ struct http_user_data
 	struct flash_img_context *	flash_img_ctx;
 	int							rc_flash_img;
 	int							rc_http_parse;
+	size_t						http_recv_bytes;
 	struct k_sem				sem;
 };
 
@@ -79,6 +83,9 @@ static void http_response_cb(struct http_ctx *http_ctx,
 		body_start	= data;
 		body_len	= data_len;
 	}
+
+	/* Body size counter */
+	http_user_data->http_recv_bytes += data_len;
 
 	if ( HTTP_DATA_MORE == data_end )
 	{
@@ -165,6 +172,7 @@ static int dfu_get_firmware_via_http(struct http_ctx *http_ctx,
 	http_user_data.flash_img_ctx	= flash_img_ctx;
 	http_user_data.rc_flash_img		= 0;
 	http_user_data.rc_http_parse	= 0;
+	http_user_data.http_recv_bytes	= 0;
 	k_sem_init(&http_user_data.sem, 0, 1);
 
 	/* Get connect to the server */
@@ -188,6 +196,30 @@ static int dfu_get_firmware_via_http(struct http_ctx *http_ctx,
 	if ( 0 != rc )
 	{
 		SYS_LOG_ERR("Wait http transmition complete error, rc = %d", rc);
+		goto out;
+	}
+
+	if ( 0 != http_user_data.rc_http_parse )
+	{
+		SYS_LOG_ERR("HTTP error, rc_http_parse = %d", http_user_data.rc_http_parse);
+		rc = -1;
+		goto out;
+	}
+
+	if ( 0 != http_user_data.rc_flash_img )
+	{
+		SYS_LOG_ERR("Flash error, rc_flash_img = %d", http_user_data.rc_flash_img);
+		rc = -1;
+		goto out;
+	}
+
+	if ( http_user_data.http_recv_bytes !=
+			flash_img_bytes_written(http_user_data.flash_img_ctx) )
+	{
+		SYS_LOG_ERR("Error size! http received: %d bytes, flash write: %d bytes",
+				http_user_data.http_recv_bytes,
+				flash_img_bytes_written(http_user_data.flash_img_ctx));
+		rc = -1;
 		goto out;
 	}
 
@@ -331,6 +363,71 @@ out:
 	k_free(http_ctx);
 
 	return rc;
+}
+
+/**
+ * @brief Check if the downloaded firmware match the given md5 value
+ *
+ * @param firmware_size The real firmware need be downloaded, use to
+ * calculate the local md5 value
+ *
+ * @param md5_str The real firmware md5 value
+ *
+ * @return	0 Local md5 value match the remote md5 value
+ *			-1 Local md5 value NOT match the remote md5 value
+ * */
+int dfu_md5_check(size_t firmware_size, const char *md5_str)
+{
+	int i;
+
+	uint8_t local_md5[16];
+	uint8_t local_md5_str[33];
+	uint8_t remote_md5_str[33];
+
+	/* @md5_str declared as const, copy its data to local stack */
+	for ( i = 0; i < 32; ++i )
+	{
+		remote_md5_str[i] = md5_str[i];
+	}
+	remote_md5_str[32] = '\0';
+
+	/**
+	 * Some how the <mbedtls/md5.h> no find in include dir,
+	 * so we just declar it here.
+	 * */
+	void mbedtls_md5(const unsigned char *imput, size_t ilen, unsigned char output[16]);
+
+	/* Calculate local md5 in flash */
+	mbedtls_md5((const unsigned char *)FLASH_AREA_IMAGE_1_OFFSET,
+			firmware_size, local_md5);
+
+	/* Convert remote md5 string all upper case char to lowwer case */
+	for ( i = 0; i < 32; ++i )
+	{
+		if ( remote_md5_str[i] >= 'A' && remote_md5_str[i] <= 'Z' )
+		{
+			remote_md5_str[i] += 32;
+		}
+	}
+
+	/* Convert local md5 value to string */
+	for ( i = 0; i < 16; ++i )
+	{
+		sprintf(&local_md5_str[ 2 * i ], "%02x", local_md5[i]);
+	}
+	local_md5_str[32] = '\0';
+
+	/* Check md5 string */
+	if ( 0 != memcmp(local_md5_str, remote_md5_str, 32) )
+	{
+		/* MD5 not match */
+		SYS_LOG_ERR("MD5 chack failed, local md5 = %s, remote md5 = %s\n",
+				local_md5_str, remote_md5_str);
+		return 0;
+	}
+
+	/* MD5 match */
+	return -1;
 }
 
 #ifdef CONFIG_APP_DFU_HTTP_DEBUG
