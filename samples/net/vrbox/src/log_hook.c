@@ -62,7 +62,7 @@ static void app_log_hook_dispatch_thread_entry_point(void *arg1, void *arg2, voi
 		if ( 0 != rc )
 		{
 #ifdef CONFIG_FILE_SYSTEM
-			int app_log_hook_save_to_file(const char * buff, size_t buff_len);
+			int app_log_hook_fifo_to_file(const char * buff, size_t buff_len);
 			rc = app_log_hook_fifo_to_file(item->buff, item->buff_size);
 #else
 			/* Drop it when no file system support */
@@ -136,11 +136,15 @@ void app_log_hook_func(const char *format, ...)
 
 #ifdef CONFIG_FILE_SYSTEM
 
-static int app_log_hook_fifo_to_file(const char *buff, size_t buff_len)
+int app_log_hook_fifo_to_file(const char *buff, size_t buff_len)
 {
 	int rc = 0;
+
 	fs_file_t file;
 
+	ssize_t n = 0;
+
+	/* Open file */
 	rc = fs_open(&file, CONFIG_APP_LOG_HOOK_LOG_FILE_NAME);
 	if ( 0 != rc )
 	{
@@ -149,17 +153,30 @@ static int app_log_hook_fifo_to_file(const char *buff, size_t buff_len)
 
 	/* TODO Check the file system capacity */
 
-	rc = fs_write(&file, buff, buff_len);
-	if ( rc < 0 )
+	/* Move to the last position of this file */
+	rc = fs_seek(&file, 0, FS_SEEK_END);
+	if ( 0 != rc )
 	{
-		/* Error */
+		goto out;
 	}
-	else if ( rc < buff_len )
+
+	/* Do write, appened message in the end of file */
+	n = fs_write(&file, buff, buff_len);
+
+	/* Check write status */
+	if ( n < 0 )
+	{
+		/* Some error happened */
+		rc = -1;
+		goto out;
+	}
+	else if ( n < buff_len )
 	{
 		/* Disk full */
-		rc = -1;
+		rc = -2;
+		goto out;
 	}
-	else if ( rc == buff_len )
+	else if ( n == buff_len )
 	{
 		/* Write OK */
 		rc = 0;
@@ -170,7 +187,7 @@ out:
 	return rc;
 }
 
-static int app_log_hook_file_to_fifo(void)
+int app_log_hook_file_to_fifo(void)
 {
 	int rc = 0;
 
@@ -182,15 +199,11 @@ static int app_log_hook_file_to_fifo(void)
 	data_item_t *		item = NULL;
 	ssize_t				n;
 
-	rc = fs_open(&file, CONFIG_APP_LOG_HOOK_LOG_FILE_NAME);
+	/* Get file state */
+	rc = fs_stat(CONFIG_APP_LOG_HOOK_LOG_FILE_NAME, &file_state);
 	if ( 0 != rc )
 	{
-		goto out;
-	}
-
-	rc = fs_stat(&file, &file_state);
-	if ( 0 != rc )
-	{
+		/* File system crashed */
 		goto out;
 	}
 
@@ -207,6 +220,15 @@ static int app_log_hook_file_to_fifo(void)
 	 * Retrive them all, and send them block by block rather than line by line.
 	 * */
 
+	/* Open file */
+	rc = fs_open(&file, CONFIG_APP_LOG_HOOK_LOG_FILE_NAME);
+	if ( 0 != rc )
+	{
+		/* File open error */
+		goto out;
+	}
+
+	/* Polling all message in log file */
 	while ( true )
 	{
 		n = fs_read(&file, buff, 256);
@@ -237,8 +259,10 @@ static int app_log_hook_file_to_fifo(void)
 		/* Copy data */
 		memcpy(item->buff, buff, n + 1);
 
+		/* Terminator of string */
 		item->buff[n] = '\0';
 
+		/* The length of the string should move one more byte to save NULL */
 		item->buff_size = n + 1;
 
 		/* Put current log message into fifo */
@@ -249,6 +273,19 @@ static int app_log_hook_file_to_fifo(void)
 	}
 
 out:
+	/**
+	 * WARNING!!
+	 *
+	 * FIXME XXX: Delete file may cause loss of message
+	 *
+	 * When the consumer get those message without send via networking, the message
+	 * will rewrite into the log file. Once this is happened, the message that
+	 * rewrite into this file will all be loss.
+	 * */
+
+	/* Delete file */
+	fs_unlink(CONFIG_APP_LOG_HOOK_LOG_FILE_NAME);
+
 	return rc;
 }
 
