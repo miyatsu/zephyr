@@ -19,7 +19,7 @@
 
 #include <dfu/flash_img.h>
 
-/*#include "mbedtls/md5.h"*/
+#include "mbedtls/md5.h"
 
 #include "net_app_buff.h"
 #include "config.h"
@@ -390,12 +390,6 @@ int dfu_md5_check(size_t firmware_size, const char *md5_str)
 		remote_md5_str[i] = md5_str[i];
 	}
 	remote_md5_str[32] = '\0';
-
-	/**
-	 * Some how the <mbedtls/md5.h> no find in include dir,
-	 * so we just declar it here.
-	 * */
-	void mbedtls_md5(const unsigned char *imput, size_t ilen, unsigned char output[16]);
 
 	/* Calculate local md5 in flash */
 	mbedtls_md5((const unsigned char *)FLASH_AREA_IMAGE_1_OFFSET,
