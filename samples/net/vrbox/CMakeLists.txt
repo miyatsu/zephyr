@@ -12,4 +12,8 @@ project(NONE)
 assert_exists(DTC_OVERLAY_FILE)
 
 FILE(GLOB app_sources src/*.c)
+
+target_link_libraries(app mbedTLS)
+target_link_libraries(app NFFS)
+
 target_sources(app PRIVATE ${app_sources})
