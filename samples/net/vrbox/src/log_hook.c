@@ -54,11 +54,13 @@ static void app_log_hook_dispatch_thread_entry_point(void *arg1, void *arg2, voi
 		if ( NULL == item )
 		{
 			/* Error handling */
+			printk("Detected a NULL item entering in FIFO!\n");
 			continue;
 		}
 
 		/* Send out via network */
 		rc = service_send_error_log(item->buff);
+
 		if ( 0 != rc )
 		{
 #ifdef CONFIG_FILE_SYSTEM
@@ -95,6 +97,11 @@ void app_log_hook_func(const char *format, ...)
 
 	va_end(args);
 
+	if ( 0 == write_offset )
+	{
+		printk("Zero size of log message detected!\n");
+		return ;
+	}
 	/**
 	 * Now the data have all retrieved to local_buff
 	 * Add it to FIFO
@@ -107,6 +114,7 @@ void app_log_hook_func(const char *format, ...)
 		 *
 		 * This will cause endless recursive and crash the system
 		 * */
+		printk("[%s] No memory at line: %d\n", __func__, __LINE__);
 		return ;
 	}
 
@@ -118,11 +126,12 @@ void app_log_hook_func(const char *format, ...)
 		 *
 		 * This will cause endless recursive and crash the system
 		 * */
+		printk("[%s] No memory at line: %d\n", __func__, __LINE__);
 		return ;
 	}
 
 	/* Copy data */
-	memcpy(item->buff, local_buff, item->buff_size);
+	memcpy(item->buff, local_buff, write_offset);
 
 	/* Terminator of string */
 	item->buff[write_offset] = '\0';
@@ -130,7 +139,7 @@ void app_log_hook_func(const char *format, ...)
 	/* The length of the string should move one more byte to save NULL */
 	item->buff_size = write_offset + 1;
 
-	/* Daa to FIFO */
+	/* Add to FIFO */
 	k_fifo_put(&app_log_hook_dispatch_fifo, item);
 }
 
@@ -306,6 +315,7 @@ out:
  * */
 int app_log_hook_init(void)
 {
+	syslog_hook_install(app_log_hook_func);
 #ifdef CONFIG_FILE_SYSTEM
 	return app_log_hook_file_to_fifo();
 #else
@@ -320,7 +330,7 @@ _Noreturn void app_log_hook_debug(void)
 	syslog_hook_install(app_log_hook_func);
 	while ( 1 )
 	{
-		SYS_LOG_ERR("%d, %c, %s\n", 45, 'A', "check");
+		SYS_LOG_ERR("%d, %c, %s", 45, 'A', "check");
 		k_sleep(1000);
 	}
 }
