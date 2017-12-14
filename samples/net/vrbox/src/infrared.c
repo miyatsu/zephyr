@@ -16,12 +16,13 @@
 #include <kernel.h>
 #include <gpio.h>
 
+#include "config.h"
+#include "gpio_comm.h"
+
 #ifdef CONFIG_APP_INFRARED_DEBUG
 #include <misc/printk.h>
 #endif /* CONFIG_APP_INFRARED_DEBUG */
 
-#include "config.h"
-#include "gpio_comm.h"
 
 /**
  * STM32F4_EXPLO On board IO map, P3:
@@ -55,6 +56,8 @@
  *
  * */
 
+static struct gpio_group_pin_t infrared_power_switch_gpio = {GPIO_GROUP_D, 12};
+
 static struct gpio_group_pin_t infrared_gpio_table[4 * 7] =
 {
 	{GPIO_GROUP_E,  1}, {GPIO_GROUP_E,  0}, {GPIO_GROUP_E,  3}, {GPIO_GROUP_E,  2}, {GPIO_GROUP_E,  5}, {GPIO_GROUP_E,  4}, {GPIO_GROUP_C, 13},
@@ -68,6 +71,11 @@ static uint8_t infrared_status[4 * 7];
 
 static bool infrared_is_box_empty(uint8_t layer, uint8_t position);
 
+static void infrared_power_switch_on_off(uint8_t on_off)
+{
+	gpio_comm_write(&infrared_power_switch_gpio, on_off);
+}
+
 /**
  * @brief Get infrared status array
  *
@@ -76,6 +84,12 @@ static bool infrared_is_box_empty(uint8_t layer, uint8_t position);
 uint8_t* infrared_get_status_array(void)
 {
 	uint8_t i, j;
+
+	/* Turn on infrared power */
+	infrared_power_switch_on_off(1);
+	k_sleep(10);
+
+	/* Get all gpio status */
 	for ( i = 0; i < 4; ++i )
 	{
 		for ( j = 0; j < 7; ++j )
@@ -83,6 +97,10 @@ uint8_t* infrared_get_status_array(void)
 			infrared_status[i * 7 + j] = infrared_is_box_empty(i, j) ? 0 : 1;
 		}
 	}
+
+	/* Turn off infrared power */
+	infrared_power_switch_on_off(0);
+
 	return (uint8_t *)infrared_status;
 }
 
@@ -154,6 +172,7 @@ int8_t infrared_init(void)
 	{
 		gpio_comm_conf(&infrared_gpio_table[i], GPIO_DIR_IN | GPIO_PUD_PULL_UP);
 	}
+	gpio_comm_conf(&infrared_power_switch_gpio, GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
 
 	/**
 	 * We need an initial function to flush the original data in GPIO.
@@ -168,6 +187,7 @@ int8_t infrared_init(void)
 	{
 		infrared_is_box_empty_read_gpio(i);
 	}
+	infrared_power_switch_on_off(0);
 
 	return 0;
 }
@@ -182,6 +202,21 @@ int8_t infrared_factory_test(void)
 #endif /* CONFIG_APP_INFRARED_FACTORY_TEST */
 
 #ifdef CONFIG_APP_INFRARED_DEBUG
+
+void infrared_set_active_high(int i, int j)
+{
+	int index = i * 7 + j;
+	gpio_comm_conf(&infrared_gpio_table[index], GPIO_DIR_OUT);
+	gpio_comm_write(&infrared_gpio_table[index], 1);
+}
+
+void infrared_set_active_low(int i, int j)
+{
+	int index = i * 7 + j;
+	gpio_comm_conf(&infrared_gpio_table[index], GPIO_DIR_OUT);
+	gpio_comm_write(&infrared_gpio_table[index], 0);
+	return ;
+}
 
 void infrared_debug(void)
 {
