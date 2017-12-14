@@ -25,7 +25,7 @@
 
 #ifndef CONFIG_SYS_LOG_EXT_HOOK
 
-#warning	"Must define CONFIG_SYS_LOG_EXT_HOOK to enable "
+#warning	"Must define CONFIG_SYS_LOG_EXT_HOOK to enable " \
 			"external hook function for logging"
 
 #else /* CONFIG_SYS_LOG_EXT_HOOK */
@@ -35,7 +35,7 @@ typedef struct data_item_s
 	void *fifo_reserved;
 	char *buff;
 	size_t buff_size;
-}data_item_t;
+}data_item_t __attribute__ ((aligned (4)));
 
 K_FIFO_DEFINE(app_log_hook_dispatch_fifo);
 
@@ -84,8 +84,28 @@ K_THREAD_DEFINE(app_log_hook_dispatch_tid,
 
 void app_log_hook_func(const char *format, ...)
 {
-	char local_buff[512];
+	char local_buff[256] __attribute__ ((aligned (4)));
 	int write_offset = 0;
+
+	data_item_t *item = NULL;
+
+	/**
+	 * Alloc this buff on heap, because we don't know how long
+	 * the stack of caller was.
+	 *
+	 * If the caller's stack size is too small to hold such a
+	 * "huge" array, may write memory out of range without warning
+	 * but crash.
+	 * */
+
+	/*
+	local_buff = k_malloc(256);
+	if ( NULL == local_buff )
+	{
+		printk("[%s] No memory at line: %d\n", __func__, __LINE__);
+		return ;
+	}
+	*/
 
 	/* Start to parse variadic variables */
 	va_list args;
@@ -97,16 +117,19 @@ void app_log_hook_func(const char *format, ...)
 
 	va_end(args);
 
-	if ( 0 == write_offset )
-	{
-		printk("Zero size of log message detected!\n");
-		return ;
-	}
+	/* Set it as a string, with NULL terminated */
+	local_buff[write_offset] = '\0';
+
 	/**
 	 * Now the data have all retrieved to local_buff
 	 * Add it to FIFO
 	 * */
-	data_item_t *item = k_malloc(sizeof(data_item_t));
+
+	item = k_malloc(sizeof(data_item_t));
+	if ( (uint32_t)item & 0x3 )
+	{
+		printk("Address not aligned!\n");
+	}
 	if ( NULL == item )
 	{
 		/**
@@ -115,7 +138,7 @@ void app_log_hook_func(const char *format, ...)
 		 * This will cause endless recursive and crash the system
 		 * */
 		printk("[%s] No memory at line: %d\n", __func__, __LINE__);
-		return ;
+		goto out;
 	}
 
 	item->buff = k_malloc(write_offset + 1);
@@ -127,21 +150,23 @@ void app_log_hook_func(const char *format, ...)
 		 * This will cause endless recursive and crash the system
 		 * */
 		printk("[%s] No memory at line: %d\n", __func__, __LINE__);
-		return ;
+		k_free(item);
+		goto out ;
 	}
 
-	/* Copy data */
-	memcpy(item->buff, local_buff, write_offset);
-
-	/* Terminator of string */
-	item->buff[write_offset] = '\0';
-
-	/* The length of the string should move one more byte to save NULL */
 	item->buff_size = write_offset + 1;
+
+	/* Copy data */
+	strcpy(item->buff, local_buff);
 
 	/* Add to FIFO */
 	k_fifo_put(&app_log_hook_dispatch_fifo, item);
+
+out:
+	//k_free(local_buff);
+	return ;
 }
+
 
 #ifdef CONFIG_FILE_SYSTEM
 
@@ -330,7 +355,9 @@ _Noreturn void app_log_hook_debug(void)
 	syslog_hook_install(app_log_hook_func);
 	while ( 1 )
 	{
-		SYS_LOG_ERR("%d, %c, %s", 45, 'A', "check");
+		SYS_LOG_ERR("01234567890123456789012345678901234567890123456789"
+					"01234567890123456789012345678901234567890123456789"
+					"01234567890123456789012345678901234567890123456789");
 		k_sleep(1000);
 	}
 }
