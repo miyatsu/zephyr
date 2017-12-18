@@ -3,13 +3,8 @@
 
 #include <kernel.h>
 
-#ifdef CONFIG_APP_JSON_DEBUG
+#include <misc/reboot.h>
 #include <misc/printk.h>
-#endif /* CONFIG_APP_JSON_DEBUG */
-
-#define SYS_LOG_DOMAIN	"json"
-#define SYS_LOG_LEVEL	SYS_LOG_LEVEL_DEBUG
-#include <logging/sys_log.h>
 
 #include "config.h"
 #include "parson.h"
@@ -20,6 +15,14 @@
 #include "door.h"
 #include "infrared.h"
 #include "headset.h"
+
+#define SYS_LOG_DOMAIN	"service"
+#ifdef CONFIG_APP_JSON_DEBUG
+	#define SYS_LOG_LEVEL	SYS_LOG_LEVEL_DEBUG
+#else
+	#define SYS_LOG_LEVEL	SYS_LOG_LEVEL_ERROR
+#endif /* CONFIG_APP_JSON_DEBUG */
+#include <logging/sys_log.h>
 
 static const char *cmd_table[] =
 {
@@ -32,6 +35,7 @@ static const char *cmd_table[] =
 	"admin_close",
 	"headset_buy",
 	"headset_add",
+	"headset_recount",
 	"dfu",
 
 	/* out cmd */
@@ -40,7 +44,7 @@ static const char *cmd_table[] =
 	"open_ok",
 	"open_error",
 
-	"admin_fetch_ok"
+	"admin_fetch_ok",
 	"admin_fetch_error",
 	"admin_rotate_ok",
 	"admin_rotate_error",
@@ -49,12 +53,233 @@ static const char *cmd_table[] =
 
 	"headset_buy_ok",
 	"headset_buy_error",
+	"headset_add_ok",
+	"headset_add_error",
 
-	/* Unexpected */
 	"error_log",
 
+	/* Unexpected */
 	NULL,
 };
+
+static int service_dfu(JSON_Value *root_in)
+{
+	int rc = 0;
+
+	JSON_Value *root_out	= NULL;
+	char *sub_cmd			= NULL;
+
+	/* Check incoming json param */
+	if ( NULL == root_in )
+	{
+		SYS_LOG_ERR("No root_in JSON_Value find!");
+		rc = -1;
+		goto out;
+	}
+
+	/* Check sub command */
+	sub_cmd = json_object_get_string(json_object(root_in), "sub_cmd");
+	if ( NULL == sub_cmd )
+	{
+		SYS_LOG_ERR("No sub_cmd field finded.");
+		rc = -1;
+		goto out;
+	}
+
+	/* Create a new json_object to response */
+	root_out = json_value_init_object();
+	if ( NULL == root_out )
+	{
+		SYS_LOG_ERR("No memory at line: %d", __LINE__);
+		rc = -ENOMEM;
+		goto out;
+	}
+	json_object_set_string(json_object(root_out), "cmd", "dfu");
+	json_object_set_string(json_object(root_out), "sub_cmd", sub_cmd);
+
+	/**
+	 * Upgrade command need to sendout status and reboot,
+	 * seperate it with other command
+	 * */
+	if ( 0 == strcmp(sub_cmd, "upgrade") )
+	{
+		/* Local variables in "if" code block */
+		char *url = NULL;
+		char *md5 = NULL;
+		int size  = 0;
+
+		char *message = NULL;
+
+		/**
+		 * Use rc as error_code
+		 *
+		 * ---------------------------------
+		 * | rc  | Detial                  |
+		 * ======|==========================
+		 * |  0  | OK, reboot to upgrade   |
+		 * ---------------------------------
+		 * | -1  | Message format error    |
+		 * ---------------------------------
+		 * | -2  | Firmware download error |
+		 * ---------------------------------
+		 * | -3  | MD5 Check error         |
+		 * ---------------------------------
+		 * | -4  | Upgrade error           |
+		 * ---------------------------------
+		 *
+		 * */
+
+		url = json_object_get_string(json_object(root_in), "url");
+		if ( NULL == url )
+		{
+			SYS_LOG_ERR("No url field find.");
+			rc = -1;
+			goto upgrade_out;
+		}
+
+		md5 = json_object_get_string(json_object(root_in), "md5");
+		if ( NULL == url )
+		{
+			SYS_LOG_ERR("No md5 field find.");
+			rc = -1;
+			goto upgrade_out;
+		}
+
+		size = json_object_get_number(json_object(root_in), "size");
+		if ( 0 == size )
+		{
+			SYS_LOG_ERR("No size field find.");
+			rc = -1;
+			goto upgrade_out;
+		}
+
+		/* Start to download */
+		rc = dfu_http_download(url, strlen(url));
+		if ( 0 != rc )
+		{
+			SYS_LOG_ERR("Firmware download failed, rc = %d", rc);
+			rc = -2;
+			goto upgrade_out;
+		}
+
+		/* Download complete, check md5 */
+		rc = dfu_md5_check(size, md5);
+		if ( 0 != rc )
+		{
+			SYS_LOG_ERR("Firmware md5 check failed.");
+			rc = -3;
+			goto upgrade_out;
+		}
+
+		/**
+		 * Now the new firmware has successfuly downloaded and checked
+		 *
+		 * Perform upgrade now
+		 * */
+
+		rc = boot_request_upgrade(1);
+		if ( 0 != rc )
+		{
+			SYS_LOG_ERR("Request upgrade error.");
+			rc = -4;
+			goto upgrade_out;
+		}
+
+upgrade_out:
+		json_object_set_number(json_object(root_out), "error_code", rc);
+
+		message = json_serialize_to_string(root_out);
+		if ( NULL == message )
+		{
+			rc = -ENOMEM;
+			json_value_free(root_out);
+			SYS_LOG_ERR("No memory at line: %d", __LINE__);
+			return rc;
+		}
+
+		mqtt_msg_send(message);
+
+		/* Release heap memory */
+		json_free_serialized_string(message);
+		json_value_free(root_out);
+
+		/* Send out without save rc */
+		if ( 0 == rc )
+		{
+			/* Use _Noreturn qualifier for this func */
+			sys_reboot(SYS_REBOOT_COLD);
+			return rc;
+		}
+		else
+		{
+			/* Some error happend, just return */
+			SYS_LOG_ERR("Unknow error, rc = %d", rc);
+			return rc;
+		}
+	}
+
+	/* Other sub_cmd except "upgrade" */
+	if ( 0 == strcmp(sub_cmd, "version") )
+	{
+		/* Add version field to JSON_Value */
+		json_object_set_string(json_object(root_out), "sub_cmd", "version");
+		json_object_set_string(json_object(root_out), "version",
+				CONFIG_APP_DFU_VERSION_STRING);
+	}
+	else if ( 0 )
+	{
+		/* Reserved for future extension */
+	}
+
+out:
+	json_value_free(root_out);
+	return rc;
+}
+
+/**
+ * @brief Send error log message via mqtt
+ *
+ * This function will be called at syslog_hook user defined function
+ *
+ * @param msg The log message that wait to be send
+ *
+ * @param 0 Send OK
+ *		  <1 Some error happened
+ * */
+int service_send_error_log(const char *msg)
+{
+	int rc = 0;
+
+	JSON_Value *root_out = NULL;
+
+	root_out = json_value_init_object();
+	if ( NULL == root_out )
+	{
+		rc = -ENOMEM;
+		goto out;
+	}
+
+	json_object_set_string(json_object(root_out), "cmd", cmd_table[CMD_ERROR_LOG]);
+	json_object_set_string(json_object(root_out), "msg", msg);
+
+	char *json = json_serialize_to_string(root_out);
+	if ( NULL == json )
+	{
+		rc = -ENOMEM;
+		json_value_free(root_out);
+		goto out;
+	}
+
+	rc = mqtt_msg_send(json);
+	printk("[RC = %d]%s\n", rc, json);
+
+	/* Release heap memory */
+	json_free_serialized_string(json);
+	json_value_free(root_out);
+
+out:
+	return rc;
+}
 
 /**
  * @brief Add the common json field into json value
@@ -97,11 +322,15 @@ static void out_json_add_status_field(JSON_Value *root_out)
 	}
 
 	/* Add "axle" field into json */
-	json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 0);
+	/* Warning: DEBUG Modify, MUST check twice before release!!! */
+	//json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 0);
+	json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 1);
 
 	for ( i = 0; i < 4; ++i )
 	{
-		json_array_append_number(json_array(door), door_status_array[i] ? 1 : 0);
+		/* Warning: DEBUG Modify, MUST check twice before release!!! */
+		//json_array_append_number(json_array(door), door_status_array[i] ? 1 : 0);
+		json_array_append_number(json_array(door), door_status_array[i] ? 1 : 1);
 	}
 
 	/* Add "door" field into json */
@@ -156,8 +385,6 @@ static void out_json_comm(JSON_Value *root_in, JSON_Value *root_out)
 
 	/* Release all json related memory */
 	json_free_serialized_string(json);
-	json_value_free(root_out);
-	json_value_free(root_in);
 }
 
 static void run_cmd_get_status(JSON_Value *root_in, JSON_Value *root_out)
@@ -177,6 +404,8 @@ int8_t do_cmd_open(uint8_t layer, uint8_t position)
 	{
 		return rc;
 	}
+
+	k_sleep(1000);
 
 	/* Open the door */
 	rc = door_open(layer);
@@ -205,14 +434,115 @@ int8_t do_cmd_close(uint8_t layer, uint8_t position)
 	return 0;
 }
 
+/**
+ * @brief Check current open/close command is the borrow related command
+ *
+ * @param ext Address of ext string field
+ *
+ * @return true Yes
+ *		   false No
+ * */
+static bool cmd_ext_is_borrow(const char *ext)
+{
+	JSON_Value * root_in_ext = NULL;
+
+	/* Default not borrow */
+	bool rc = false;
+
+	/* Parse json */
+	root_in_ext = json_parse_string(ext);
+	if ( NULL == root_in_ext )
+	{
+		SYS_LOG_ERR("Can not parse ext field at line: %d!", __LINE__);
+		goto out;
+	}
+
+	/* Get cmd field */
+	const char *ext_cmd = json_object_get_string(json_object(root_in_ext), "cmd");
+	if ( NULL == ext_cmd )
+	{
+		SYS_LOG_ERR("No cmd field in ext field at line: %d!", __LINE__);
+		goto out;
+	}
+
+	/* Check command */
+	if ( 0 == strcmp(ext_cmd, "borrow") )
+	{
+		rc = true;
+	}
+
+out:
+	json_value_free(root_in_ext);
+	return rc;
+}
+
+/**
+ * @brief Check if current open/close command is the back related command
+ *
+ * @param ext Address of ext string field
+ *
+ * @return true Yes
+ *		   false No
+ * */
+static bool cmd_ext_is_back(const char *ext)
+{
+	JSON_Value * root_in_ext = NULL;
+
+	/* Default not back */
+	bool rc = false;
+
+	/* Parse json */
+	root_in_ext = json_parse_string(ext);
+	if ( NULL == root_in_ext )
+	{
+		SYS_LOG_ERR("Can not parse ext field at line: %d!", __LINE__);
+		goto out;
+	}
+
+	/* Get cmd field */
+	const char *ext_cmd = json_object_get_string(json_object(root_in_ext), "cmd");
+	if ( NULL == ext_cmd )
+	{
+		SYS_LOG_ERR("No cmd field in ext field at line: %d!", __LINE__);
+		goto out;
+	}
+
+	/* Check command */
+	if ( 0 == strcmp(ext_cmd, "back") )
+	{
+		rc = true;
+	}
+
+out:
+	json_value_free(root_in_ext);
+	return rc;
+}
+
+static void out_json_add_coordinate(JSON_Value *root_out, uint8_t position, uint8_t layer)
+{
+	JSON_Value *coordinate = json_value_init_array();
+	if ( NULL == coordinate )
+	{
+		SYS_LOG_ERR("No memory at line: %d", __LINE__);
+		return ;
+	}
+
+	json_array_append_number(json_array(coordinate), layer);
+	json_array_append_number(json_array(coordinate), position);
+
+	json_object_set_value(json_object(root_out), "coordinate", coordinate);
+}
+
 static void run_cmd_open(JSON_Value *root_in, JSON_Value *root_out)
 {
 	uint8_t position, layer;
+	int rc = 0;
 
 	position = json_object_get_number(json_object(root_in), "position");
 	if ( !(position >= 1 && position <= 7) )
 	{
 		/* Error handling */
+		SYS_LOG_ERR("Position out of range, position = %d", position);
 		return ;
 	}
 
@@ -220,54 +550,205 @@ static void run_cmd_open(JSON_Value *root_in, JSON_Value *root_out)
 	if ( !(layer >= 1 && layer <= 4) )
 	{
 		/* Error handling */
+		SYS_LOG_ERR("Layer out of range, layer = %d", layer);
 		return ;
 	}
 
-	if ( 0 == do_cmd_open(layer, position) )
+	/**
+	 * Upper x86 is written in JS, async IO for all processing,
+	 * so add more field to let the upper x86 know what's position
+	 * it needed when send back operation result.
+	 * */
+	out_json_add_coordinate(root_out, position, layer);
+
+	rc = do_cmd_open(layer, position);
+	if ( 0 == rc )
 	{
 		json_object_set_string(json_object(root_out), "cmd", "open_ok");
 	}
 	else
 	{
 		json_object_set_string(json_object(root_out), "cmd", "open_error");
+		json_object_set_number(json_object(root_out), "error_code", rc);
 	}
 
 	out_json_comm(root_in, root_out);
 }
 
+/**
+ * @brief Run command close
+ *
+ * @param root_in Incoming parsed json value pointer
+ *		  root_out Outgoing parsed json value pointer
+ * */
 static void run_cmd_close(JSON_Value *root_in, JSON_Value *root_out)
 {
 	uint8_t position, layer;
+	int i, rc = 0;
+	int error_code = 0;
 
+	/* Get axle position */
 	position = json_object_get_number(json_object(root_in), "position");
 	if ( !(position >= 1 && position <= 7) )
 	{
 		/* Error handling */
+		SYS_LOG_ERR("Position out of range, position = %d", position);
 		return ;
 	}
 
+	/* Get door layer */
 	layer = json_object_get_number(json_object(root_in), "layer");
 	if ( !(layer >= 1 && layer <= 4) )
 	{
 		/* Error handling */
+		SYS_LOG_ERR("Layer out of range, layer = %d", layer);
 		return ;
 	}
 
-	if ( 0 == do_cmd_close(layer, position) )
+	/**
+	 * Upper x86 is written in JS, async IO for all processing,
+	 * so add more field to let the upper x86 know what's position
+	 * it needed when send back the operation result.
+	 * */
+	out_json_add_coordinate(root_out, position, layer);
+
+	const char *ext = json_object_get_string(json_object(root_in), "ext");
+	if ( NULL == ext )
 	{
-		json_object_set_string(json_object(root_out), "cmd", "close_ok");
+		/* Error handling */
+		SYS_LOG_ERR("No ext field find in command!");
+		return ;
+	}
+
+	/**
+	 * TODO Polling infrared detector status for at least 3 seconds,
+	 * make sure the cargo is on board.
+	 *
+	 * For test purpose, we just sleep for 3 seconds.
+	 * */
+	if ( cmd_ext_is_back(ext) )
+	{
+		/**
+		 * Upper x86 use 5 seconds for delay, we sleep 3 seconds
+		 * first, make sure the cargo is on board.
+		 * */
+		k_sleep(3000);
+
+		int i = 0;
+		uint8_t *box_status = NULL;
+
+		/* Check if the cargo is on board */
+		box_status = infrared_get_status_array();
+		if ( 0 == box_status[(layer - 1) * 7 + (position - 1)] )
+		{
+			/* Box empty */
+			error_code = 2;
+		}
+
+		/* Polling infrared 2 seconds, make sure the cargo is on board */
+		for ( i = 0; i < 4; ++i )
+		{
+			box_status = infrared_get_status_array();
+			if ( 0 == box_status[(layer - 1) * 7 + (position - 1)] )
+			{
+				/* Box empty */
+				break;
+			}
+			k_sleep(500);
+		}
+
+		/* On board cargo is not ready to launch */
+		if ( i < 4 )
+		{
+			error_code = 3;
+		}
+	}
+	else if ( cmd_ext_is_borrow(ext) )
+	{
+		/* Nothing */
+		k_sleep(15000);
 	}
 	else
 	{
-		json_object_set_string(json_object(root_out), "cmd", "close_error");
+		SYS_LOG_ERR("Line: %d Cmd field in ext not match \"back\" or \"borrow\"!",
+				__LINE__);
+		k_sleep(3000);
 	}
 
+	for ( i = 0; i < 3; ++i )
+	{
+		/**
+		 * Try to close the door
+		 * return positive means there is infrared detected
+		 * return negetive means there is an error happened
+		 * return zero means door close ok
+		 * */
+		rc = do_cmd_close(layer, position);
+
+		if ( 0 == rc )
+		{
+			json_object_set_string(json_object(root_out), "cmd", "close_ok");
+			break;
+		}
+		else if ( rc < 0 )
+		{
+			json_object_set_string(json_object(root_out), "cmd", "close_error");
+
+			/* Add error_code */
+			error_code = rc;
+			break;
+		}
+		else
+		{
+			/* On door infrared detected */
+
+			/* Start to open the door immidialtly */
+			door_open(layer);
+
+			/* When the door fully opened, wait 3 seconds then try to close agian */
+			k_sleep(3000);
+			continue;
+		}
+	}
+
+	if ( i >= 3 )
+	{
+		/* Infrared detected, close door timeout */
+		error_code = 1;
+	}
+	json_object_set_number(json_object(root_out), "error_code", error_code);
+
+out:
 	out_json_comm(root_in, root_out);
 }
 
 static void run_cmd_admin_fetch(JSON_Value *root_in, JSON_Value *root_out)
 {
-	if ( 0 == axle_rotate_to(1) && 0 == door_admin_open() )
+	uint8_t position = json_object_get_number(json_object(root_in), "position");
+	if ( !(position >= 1 && position <= 7) )
+	{
+		return ;
+	}
+
+	int rc = 0;
+
+	rc = axle_rotate_to(position);
+	if ( 0 != rc )
+	{
+		goto out;
+	}
+
+	printk("Move axle to position done!\n");
+
+	rc = door_admin_open();
+	if ( 0 != rc )
+	{
+		goto out;
+	}
+
+out:
+	SYS_LOG_DBG("rc = %d", rc);
+	if ( 0 == rc )
 	{
 		json_object_set_string(json_object(root_out), "cmd", "admin_fetch_ok");
 	}
@@ -281,7 +762,14 @@ static void run_cmd_admin_fetch(JSON_Value *root_in, JSON_Value *root_out)
 
 static void run_cmd_admin_rotate(JSON_Value *root_in, JSON_Value *root_out)
 {
-	if ( 0 == axle_rotate_to_next() )
+	uint8_t position = json_object_get_number(json_object(root_in), "position");
+	if ( !( position >= 1 && position <= 7 ) )
+	{
+		/* TODO Error handle */
+		return ;
+	}
+
+	if ( 0 == axle_rotate_to(position) )
 	{
 		json_object_set_string(json_object(root_out), "cmd", "admin_rotate_ok");
 	}
@@ -335,23 +823,33 @@ static void run_cmd_headset_add(JSON_Value *root_in, JSON_Value *root_out)
 	out_json_comm(root_in, root_out);
 }
 
-static void run_cmd_dfu(JSON_Value *root_in, JSON_Value *root_out)
+static void run_cmd_headset_recount(JSON_Value *root_in, JSON_Value *root_out)
 {
-	return ;
+	if ( 0 == headset_init() )
+	{
+		json_object_set_string(json_object(root_out), "cmd", "headset_recount_ok");
+	}
+	else
+	{
+		json_object_set_string(json_object(root_out), "cmd", "headset_recount_error");
+	}
+
+	out_json_comm(root_in, root_out);
 }
 
 
-int json_cmd_parse(uint8_t *msg, uint16_t msg_len)
+int service_cmd_parse(uint8_t *msg, size_t msg_len)
 {
 	int rc = 0;
-	char *cmd = NULL;
+
+	const char *cmd = NULL;
 	enum cmd_table_index_e index;
 
 	uint8_t * buff			= NULL;
 	JSON_Value * root_in	= NULL;
 	JSON_Value * root_out	= NULL;
 
-	buff = k_malloc(512);
+	buff = k_malloc(msg_len + 1);
 	if ( NULL == buff )
 	{
 		SYS_LOG_ERR("Out of memory at line: %d", __LINE__);
@@ -365,7 +863,7 @@ int json_cmd_parse(uint8_t *msg, uint16_t msg_len)
 
 	SYS_LOG_DBG("%s", buff);
 
-	/* Start to parse json, the memory will free at each switch function */
+	/* Start to parse json, the memory will free at the end of this function */
 	root_in = json_parse_string(buff);
 	if ( NULL == root_in )
 	{
@@ -438,15 +936,17 @@ int json_cmd_parse(uint8_t *msg, uint16_t msg_len)
 		case CMD_HEADSET_ADD:
 			run_cmd_headset_add(root_in, root_out);
 			break;
+		case CMD_HEADSET_RECOUNT:
+			run_cmd_headset_recount(root_in, root_out);
+			break;
 		case CMD_DFU:
-			run_cmd_dfu(root_in, root_out);
+			service_dfu(root_in);
 			break;
 		default:
 			SYS_LOG_ERR("Impossibile index!");
 			rc = -EINVAL;
 	}
-	k_free(buff);
-	return rc;
+	rc = 0;
 
 out:
 	json_value_free(root_out);
@@ -469,10 +969,10 @@ void json_debug_11(void)
 
 /*
 	JSON_Value *box = json_parse_string("["
-			"[true, true, true, true],"
-			"[true, true, true, true],"
-			"[true, true, true, true],"
-			"[true, true, true, true]"
+			"[1,1,1,1]"
+			"[1,1,1,1]"
+			"[1,1,1,1]"
+			"[1,1,1,1]"
 			"]");
 */
 	JSON_Value *box_in[4];
