@@ -19,7 +19,7 @@
 
 #include <dfu/flash_img.h>
 
-#include "mbedtls/md5.h"
+#include <mbedtls/md5.h>
 
 #include "net_app_buff.h"
 #include "config.h"
@@ -85,7 +85,7 @@ static void http_response_cb(struct http_ctx *http_ctx,
 	}
 
 	/* Body size counter */
-	http_user_data->http_recv_bytes += data_len;
+	http_user_data->http_recv_bytes += body_len;
 
 	if ( HTTP_DATA_MORE == data_end )
 	{
@@ -417,20 +417,21 @@ int dfu_md5_check(size_t firmware_size, const char *md5_str)
 		/* MD5 not match */
 		SYS_LOG_ERR("MD5 chack failed, local md5 = %s, remote md5 = %s\n",
 				local_md5_str, remote_md5_str);
-		return 0;
+		return -1;
 	}
 
 	/* MD5 match */
-	return -1;
+	return 0;
 }
 
 #ifdef CONFIG_APP_DFU_HTTP_DEBUG
 
 void dfu_debug(void)
 {
-	char uri[] = "http://172.16.0.1/screen/index.html";
+	char uri[] = "http://172.16.0.1/data/box/rar/15135993444224098.bin";
 
-	dfu_http_download(uri, sizeof(uri) - 1);
+	int rc = dfu_http_download(uri, sizeof(uri) - 1);
+	printk("Download done, rc = %d\n", rc);
 	while ( 1 )
 	{
 		k_sleep(1000);
