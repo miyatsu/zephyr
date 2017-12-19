@@ -175,6 +175,14 @@ static int dfu_get_firmware_via_http(struct http_ctx *http_ctx,
 	http_user_data.http_recv_bytes	= 0;
 	k_sem_init(&http_user_data.sem, 0, 1);
 
+	/* Erase sector */
+	rc = boot_erase_img_bank(FLASH_AREA_IMAGE_1_OFFSET);
+	if ( 0 != rc )
+	{
+		SYS_LOG_ERR("Erase img bank error.");
+		goto out;
+	}
+
 	/* Get connect to the server */
 	rc = http_client_send_req(http_ctx, &http_req, http_response_cb,
 			http_rx_buff, CONFIG_APP_DFU_HTTP_RX_BUFF_SIZE,
@@ -424,11 +432,24 @@ int dfu_md5_check(size_t firmware_size, const char *md5_str)
 	return 0;
 }
 
+int dfu_init(void)
+{
+	int rc;
+
+	rc = boot_write_img_confirmed();
+	if ( 0 != rc )
+	{
+		SYS_LOG_ERR("Confirmed write error, rc = %d", rc);
+	}
+
+	return rc;
+}
+
 #ifdef CONFIG_APP_DFU_HTTP_DEBUG
 
 void dfu_debug(void)
 {
-	char uri[] = "http://172.16.0.1/data/box/rar/15135993444224098.bin";
+	char uri[] = "http://172.16.0.1/data/box/rar/15136708480958959.bin";
 
 	int rc = dfu_http_download(uri, sizeof(uri) - 1);
 	printk("Download done, rc = %d\n", rc);
