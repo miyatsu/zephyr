@@ -4,18 +4,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __CONFIG_H__
-#define __CONFIG_H__
+#ifndef CONFIG_H
+#define CONFIG_H
 
-//#define SERVER_ADDR		"192.168.0.126"
-//#define SERVER_PORT		1884
+#include "version.h"
 
+/* DFU config */
+/*****************************************************/
+#define CONFIG_APP_DFU_HTTP_DEBUG
 
-#define APP_SLEEP_MSECS		500
-#define APP_TX_RX_TIMEOUT       300
-#define APP_NET_INIT_TIMEOUT    10000
+#define CONFIG_APP_DFU_HTTP_CONNECTION_TIMEOUT_IN_SEC	20
+#define CONFIG_APP_DFU_HTTP_RX_TIMEOUT_IN_SEC			5
+#define CONFIG_APP_DFU_HTTP_TX_TIMEOUT_IN_SEC			5
 
+#define CONFIG_APP_DFU_HTTP_RX_BUFF_SIZE				1024
+/*****************************************************/
 
+/* LOG config */
+#define CONFIG_APP_LOG_HOOK_DEBUG
+#define CONFIG_APP_LOG_HOOK_DISPATCH_THREAD_STACK_SIZE	2048
+#define CONFIG_APP_LOG_HOOK_LOG_FILE_NAME				"/log.log"
 
 /* Factory test config */
 #undef CONFIG_APP_FACTORY_TEST
@@ -51,22 +59,8 @@
 /* Json config */
 #define CONFIG_APP_JSON_DEBUG
 
-/* DFU config */
-#define CONFIG_APP_DFU_HTTP_DEBUG
-#define CONFIG_APP_DFU_HTTP_CONNECTION_TIMEOUT_IN_SEC	20
-#define CONFIG_APP_DFU_HTTP_RX_BUFF_SIZE				1024
-#define CONFIG_APP_DFU_HTTP_RX_TIMEOUT_IN_SEC			5
-#define CONFIG_APP_DFU_HTTP_TX_TIMEOUT_IN_SEC			5
-
-/* LOG config */
-#define CONFIG_APP_LOG_HOOK_DEBUG
-#define CONFIG_APP_LOG_HOOK_DISPATCH_THREAD_STACK_SIZE	2048
-#define CONFIG_APP_LOG_HOOK_LOG_FILE_NAME				"/log.log"
-
 /* Main function config */
 //#define CONFIG_APP_MAIN_DEBUG
-
-
 
 /* MQTT config */
 /*****************************************************/
@@ -74,7 +68,7 @@
 #define CONFIG_APP_MQTT_INIT_TIMEOUT	( 10 * 1000 )
 #define CONFIG_APP_MQTT_TIMEOUT			( 10 * 1000 )
 
-#define CONFIG_APP_MQTT_DISPATCH_THREAD_STACK_SIZE		2048
+#define CONFIG_APP_MQTT_DISPATCH_THREAD_STACK_SIZE		4096
 
 #define CONFIG_APP_MQTT_SERVER_ADDR		"172.16.0.1"
 #define CONFIG_APP_MQTT_SERVER_PORT		1883
@@ -92,5 +86,5 @@
 #define MQTT_PUBLISH_TOPIC		"srv/controller"
 /*****************************************************/
 
-#endif
+#endif /* CONFIG_H */
 
