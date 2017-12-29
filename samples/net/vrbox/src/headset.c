@@ -34,8 +34,11 @@ static struct gpio_group_pin_t headset_gpio_table[] =
 	{GPIO_GROUP_B, 4}, {GPIO_GROUP_B, 5}, {GPIO_GROUP_B, 6}, {GPIO_GROUP_B, 7}
 };
 
-/* Stock of headset, -1 means some mechanical error happened */
-static int8_t headset_stock = 0;
+/**
+ * Stock of headset, -1 means some mechanical error happened
+ * -2 means the headset is not initialized
+ * */
+static int8_t headset_stock = -2;
 
 /**
  * @brief Get the headset stock
@@ -465,9 +468,9 @@ out:
  * @return 0, initial ok
  *		  <0, some error happened
  * */
-static int8_t headset_stock_init(void)
+int8_t headset_stock_init(void)
 {
-	uint16_t i, j;
+	uint16_t i;
 	int rc = 0;
 
 	/* Check dial position */
@@ -566,7 +569,7 @@ int8_t headset_init(void)
 
 	k_sem_init(&headset_dial_in_position_sem, 0, 1);
 
-	return headset_stock_init();
+	return 0;
 }
 
 #ifdef CONFIG_APP_HEADSET_FACTORY_TEST
@@ -582,7 +585,6 @@ int8_t headset_factory_test(void)
 
 void headset_debug(void)
 {
-	int rc;
 	SYS_LOG_DBG("Start to run debug...");
 	headset_init();
 	while ( 1 )
@@ -598,12 +600,14 @@ void headset_debug(void)
 	}
 	while (1)
 	{
-		headset_axle_rotate_enable();
+		/*
+		headset_axle_rotate_enable(1);
 		while ( headset_is_in_position() )
 		{
 			headset_axle_rotate_disable();
 			k_sleep(2000);
 		}
+		*/
 	}
 	return ;
 }
