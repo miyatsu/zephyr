@@ -19,6 +19,9 @@
 #include <kernel.h>
 #include <net/mqtt.h>
 
+#include <misc/reboot.h>
+
+#include "service.h"
 #include "net_app_buff.h"
 #include "config.h"
 
@@ -59,7 +62,7 @@ static void mqtt_rx_dispatch_thread_entry_point(void *arg1, void *arg2, void *ar
 			continue;
 		}
 
-		json_cmd_parse(item->buff, item->buff_size);
+		service_cmd_parse(item->buff, item->buff_size);
 
 		k_free(item->buff);
 		k_free(item);
@@ -124,6 +127,8 @@ static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 	memcpy(item->buff, msg->msg, item->buff_size);
 
 	k_fifo_put(&mqtt_rx_dispatch_fifo, item);
+
+	return 0;
 }
 
 static int subscribe_cb(struct mqtt_ctx *ctx, uint16_t pkt_id,
@@ -156,20 +161,20 @@ static void init1(void)
 	ctx.subscribe	= subscribe_cb;
 	ctx.unsubscribe	= unsubscribe_cb;
 
-	ctx.net_init_timeout = CONFIG_APP_MQTT_INIT_TIMEOUT;
-	ctx.net_timeout = CONFIG_APP_MQTT_TIMEOUT;
+	ctx.net_init_timeout	= CONFIG_APP_MQTT_INIT_TIMEOUT;
+	ctx.net_timeout			= CONFIG_APP_MQTT_TIMEOUT;
 
-	ctx.peer_addr_str = CONFIG_APP_MQTT_SERVER_ADDR;
-	ctx.peer_port = CONFIG_APP_MQTT_SERVER_PORT;
+	ctx.peer_addr_str		= CONFIG_APP_MQTT_SERVER_ADDR;
+	ctx.peer_port			= CONFIG_APP_MQTT_SERVER_PORT;
 
 	mqtt_init(&ctx, MQTT_APP_PUBLISHER_SUBSCRIBER);
 
 	/* Connect message */
 	memset(&connect_msg, 0x00, sizeof(connect_msg));
 
-	connect_msg.client_id = CONFIG_APP_MQTT_CLIENT_ID;
-	connect_msg.client_id_len = strlen(CONFIG_APP_MQTT_CLIENT_ID);
-	connect_msg.clean_session = 1;
+	connect_msg.client_id		= CONFIG_APP_MQTT_CLIENT_ID;
+	connect_msg.client_id_len	= strlen(CONFIG_APP_MQTT_CLIENT_ID);
+	connect_msg.clean_session	= 1;
 
 	/* Publish message */
 	memset(&publish_msg, 0x00, sizeof(publish_msg));
@@ -229,6 +234,16 @@ static int init2(void)
 
 	/* MQTT connection ok, subscribe topic ok. */
 	SYS_LOG_DBG("MQTT initial OK!");
+
+#if defined(CONFIG_LOG_EXT_HOOK) && defined(CONFIG_FILE_SYSTEM)
+	/**
+	 * Retrieve all log message from log file and add them to send queue
+	 *
+	 * This function is defined under log hook and file system enabled
+	 * */
+	app_log_hook_file_fo_fifo();
+#endif
+
 	return 0;
 }
 
@@ -274,7 +289,7 @@ static void mqtt_ping_thread_entry_point(void *arg1, void *arg2, void *arg3)
 		if ( 0 != mqtt_tx_pingreq(&ctx) )
 		{
 			SYS_LOG_ERR("WARNING: Ethernet cable broken, reboot system!\n");
-			sys_reboot();
+			sys_reboot(0);
 		}
 	}
 }
@@ -304,10 +319,9 @@ int net_mqtt_init(void)
 
 int mqtt_msg_send(const char *buff)
 {
-	printk("%s\n", buff);
 	int rc = 0;
 
-	publish_msg.msg = buff;
+	publish_msg.msg = (char *)buff;
 	publish_msg.msg_len = strlen(buff);
 	publish_msg.pkt_id = sys_rand32_get();
 
