@@ -437,181 +437,6 @@ static void axle_in_position_irq_init(void)
 }
 
 /**
- * @brief Move axle to none certain position
- *
- * Note: This function is deprecated.
- *
- * @return 0 success
- *		   <0 failed
- * */
-static int __attribute__((deprecated)) axle_rotate_off_grid(void)
-{
-	int i, rc = 0;
-
-	/* Disable all 7 gpio pin irq */
-	for ( i = 1; i <= 7; ++i )
-	{
-		axle_in_position_irq_disable(i);
-	}
-
-	/* Unlock the axle break */
-	axle_set_rotate_lock_unlock(1);
-
-	/* Start to rotate axle */
-	axle_set_rotate_enable_disable(1);
-
-	/* Move axle off grid, make it not point at any position */
-	for ( i = 0; i < CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC * 10; ++i )
-	{
-		if ( 0 == axle_position_read() )
-		{
-			break;
-		}
-		k_sleep(100);
-	}
-
-	if ( i >= CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC * 10 )
-	{
-		/* Move axle off grid timeout */
-		SYS_LOG_ERR("Move off grid timeout");
-		rc = -1;
-	}
-
-	return rc;
-}
-
-/**
- * @brief Move axle to a requested position
- *
- * Note: This function is deprecated
- *
- * @param final_destination_position The position that upper layer wanted
- *
- * @return 0 ok
- *		   <0 error
- * */
-static int8_t __attribute__((deprecated)) axle_rotate_to_(uint8_t final_destination_position)
-{
-	int i, rc = 0;
-	int axle_position, destination_position;
-	int axle_rotate_times;
-
-	axle_position = axle_position_read();
-	if ( 0 == axle_position )
-	{
-		SYS_LOG_ERR("Can not read current axle position");
-		return -1;
-	}
-
-	if ( axle_position == final_destination_position )
-	{
-		/**
-		 * Currentr axle position is the destination position
-		 * No need to rotate
-		 * */
-		return 0;
-	}
-
-	/* Fingure out how many times should we rotate */
-	axle_rotate_times = final_destination_position - axle_position;
-	SYS_LOG_DBG("axle_rotate_times = %d", axle_rotate_times);
-
-	/* Initial destination position, and set rotate direction */
-	if ( axle_rotate_times > 0 )
-	{
-		/* Set rotate direction as asending order */
-		axle_set_rotate_direction(0);
-		destination_position = axle_position + 1;
-	}
-	else
-	{
-		/* Set rotate direction as desending order */
-		axle_set_rotate_direction(1);
-		destination_position = axle_position - 1;
-	}
-
-again:
-	/* Move the axle off grid, in case of irq trigger by accedent */
-	rc = axle_rotate_off_grid();
-	if ( 0 != rc )
-	{
-		goto out;
-	}
-
-	/**
-	 * At this point, we are net at any position
-	 * Debounce by wait more time, in case of irq triggerd by accident
-	 * */
-	k_sleep(200);
-
-	/**
-	 * The axle now not in position,
-	 * at this point, we can enable irq and wait it trigger
-	 * */
-	axle_in_position_irq_enable(destination_position);
-
-	/* Wait irq trigger and polling axle position */
-	for ( i = 0; i < CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC * 10; ++i )
-	{
-		/* Polling gpio status */
-		if ( destination_position == axle_position_read() )
-		{
-			break;
-		}
-
-		/* Wait irq trigger */
-		rc = k_sem_take(&axle_in_position_sem, 100);
-		if ( 0 == rc )
-		{
-			break;
-		}
-	}
-
-	if ( i >= CONFIG_APP_AXLE_ROTATE_TIMEOUT_IN_SEC * 10 )
-	{
-		/* Timeout at polling stage */
-		rc = -1;
-		SYS_LOG_ERR("Wait axle in position irq timeout");
-		goto out;
-	}
-
-	/* Now axle is at destination position, check if it is the final position */
-	if ( destination_position != final_destination_position )
-	{
-		/**
-		 * Current destination position is not the final destination position,
-		 * update new destination position for next rotate
-		 * */
-		if ( axle_rotate_times > 0 )
-		{
-			/* Rotate acsending order, destination must increased one */
-			destination_position++;
-		}
-		else
-		{
-			/* Rotate descending order, destination must decrease one */
-			destination_position--;
-		}
-		SYS_LOG_DBG("Again detected");
-		goto again;
-	}
-
-	/* At this point, final position reached */
-
-out:
-	/* Lock the axle break */
-	axle_set_rotate_lock_unlock(0);
-
-	/* Stop rotate axle */
-	axle_set_rotate_enable_disable(0);
-
-	/* Disable destination position's gpio irq */
-	axle_in_position_irq_disable(axle_position - 1);
-
-	return rc;
-}
-
-/**
  * @brief Rotate the axle to particular position
  *
  * @param destination_position The real position want to get
@@ -977,7 +802,7 @@ int8_t axle_init(void)
 
 #ifdef CONFIG_APP_AXLE_FACTORY_TEST
 
-int8_t axle_factory_test(void)
+int axle_factory_test_base(void)
 {
 	return 0;
 }
@@ -985,6 +810,50 @@ int8_t axle_factory_test(void)
 #endif /* CONFIG_APP_AXLE_FACTORY_TEST */
 
 #ifdef CONFIG_APP_AXLE_DEBUG
+
+void axle_debug_(void)
+{
+	int i = 0;
+
+	/* Set direction gpio as output and level it up for default */
+	gpio_comm_conf(&axle_gpio_table[8], GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
+
+	/* Flush output and set rotate anticlockwise */
+	axle_set_rotate_direction(0);
+
+	/* Set the break gpio as output and level it up for default */
+	gpio_comm_conf(&axle_gpio_table[9], GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
+
+	/* Flush output and set the break locked */
+	axle_set_rotate_lock_unlock(0);
+
+	/* All GPIO are initialized except PWM */
+
+	while ( 1 )
+	{
+		i %= 2;
+
+		printk("Set rotate direction: %d\n", i);
+		axle_set_rotate_direction(i);
+
+		printk("Release the break\n");
+		axle_set_rotate_lock_unlock(1);
+		k_sleep(200);
+
+		printk("Start to rotate...\n");
+		axle_set_rotate_enable_disable(1);
+		k_sleep(5000);
+
+		printk("Stop rotate...\n");
+		axle_set_rotate_enable_disable(0);
+		axle_set_rotate_lock_unlock(0);
+		printk("Stop rotate done!\n");
+
+		k_sleep(5000);
+
+		++i;
+	}
+}
 
 void axle_debug(void)
 {
@@ -1004,7 +873,7 @@ void axle_debug(void)
 	while ( 1 )
 	{
 		printk("Start to rotate...\n");
-		for ( i = 1; i <= 7; )
+		for ( i = 1; i <= 7; ++i)
 		{
 			printk("Start to rotate to %d...\n", i);
 			rc = axle_rotate_to(i);
@@ -1017,8 +886,9 @@ void axle_debug(void)
 				printk("Rotate OK.\n");
 			}
 			k_sleep(2000);
+			/*
 			i = sys_rand32_get();
-			i = (i%7)+1;
+			i = (i%7)+1;*/
 		}
 		k_sleep(2000);
 		for ( i = 7; i >= 1; --i )
