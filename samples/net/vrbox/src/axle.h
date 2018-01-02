@@ -48,7 +48,11 @@ int8_t axle_rotate_to(uint8_t destination_position);
 int8_t axle_rotate_to_next(void);
 
 #ifdef CONFIG_APP_AXLE_FACTORY_TEST
-int8_t axle_factory_test(void);
+int axle_ft_lock(void);
+int axle_ft_unlock(void);
+int axle_ft_rotate_desc(void);
+int axle_ft_rotate_asc(void);
+int axle_ft_rotate_stop(void);
 #endif /* CONFIG_APP_AXLE_FACTORY_TEST */
 
 #ifdef CONFIG_APP_AXLE_DEBUG

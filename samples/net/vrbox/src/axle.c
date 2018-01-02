@@ -802,8 +802,56 @@ int8_t axle_init(void)
 
 #ifdef CONFIG_APP_AXLE_FACTORY_TEST
 
-int axle_factory_test_base(void)
+int axle_ft_lock(void)
 {
+	axle_set_rotate_lock_unlock(0);
+	return 0;
+}
+
+int axle_ft_unlock(void)
+{
+	axle_set_rotate_lock_unlock(1);
+	return 0;
+}
+
+int axle_ft_rotate_desc(void)
+{
+	/* Anticlockwise/descending order */
+	axle_set_rotate_direction(0);
+
+	/* Unlock */
+	axle_set_rotate_lock_unlock(1);
+	k_sleep(200);
+
+	/* Start to rotate */
+	axle_set_rotate_enable_disable(1);
+
+	return 0;
+}
+
+int axle_ft_rotate_asc(void)
+{
+	/* Clockwise/ascending order */
+	axle_set_rotate_direction(1);
+
+	/* Unlock */
+	axle_set_rotate_lock_unlock(1);
+	k_sleep(200);
+
+	/* Start to rotate */
+	axle_set_rotate_enable_disable(1);
+
+	return 0;
+}
+
+int axle_ft_rotate_stop(void)
+{
+	/* Stop to rotate */
+	axle_set_rotate_enable_disable(0);
+
+	/* Lock */
+	axle_set_rotate_lock_unlock(0);
+
 	return 0;
 }
 
