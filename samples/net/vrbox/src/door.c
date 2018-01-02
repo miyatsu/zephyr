@@ -580,6 +580,12 @@ int door_open(uint8_t layer)
 			SYS_LOG_DBG("IRQ triggered, layer = %d, i = %d", layer, i);
 			break;
 		}
+		else if ( -EBUSY == rc )
+		{
+			/* No wait for sem */
+			SYS_LOG_DBG("SEM take no wait, layer = %d, i = %d", layer, i);
+			k_sleep(100);
+		}
 
 		/* IRQ not triggered, polling the GPIO status */
 
@@ -702,6 +708,12 @@ int door_close(uint8_t layer)
 			/* Triggered */
 			SYS_LOG_DBG("IRQ triggered, layer = %d, i = %d", layer, i);
 			break;
+		}
+		else if ( -EBUSY == rc )
+		{
+			/* No wait on sem */
+			SYS_LOG_DBG("SEM take no wait, layer = %d, i = %d", layer, i);
+			k_sleep(100);
 		}
 
 		/* IRQ not triggered, polling the GPIO status */
@@ -889,7 +901,7 @@ int8_t door_admin_close(void)
 	memset(door_init_thread, 0x00, sizeof(struct k_thread) * 4);
 
 	/* Start to init doors */
-	for ( i = 0; i < 4; ++i )
+	for ( i = 3; i >= 0; --i )
 	{
 		k_sem_init(&thread_sem[i], 0, 1);
 
@@ -900,6 +912,7 @@ int8_t door_admin_close(void)
 			(void *)&layer[i], (void *)&thread_sem[i], (void*)&thread_rc[i],
 			0, 0, K_NO_WAIT );
 			/* Prio: 0, Flag: 0, Delay: No delay */
+		k_sleep(200);
 	}
 
 	/* Wait all four initial thread return */
@@ -955,7 +968,7 @@ int8_t door_admin_open(void)
 	memset(door_open_thread, 0x00, sizeof(struct k_thread) * 4);
 
 	/* Start to open doors */
-	for ( i = 0; i < 4; ++i )
+	for ( i = 3; i >= 0; --i )
 	{
 		k_sem_init(&thread_sem[i], 0, 1);
 
@@ -966,6 +979,7 @@ int8_t door_admin_open(void)
 			(void *)&layer[i], (void *)&thread_sem[i], (void*)&thread_rc[i],
 			0, 0, K_NO_WAIT );
 			/* Prio: 0, Flag: 0, Delay: No delay */
+		k_sleep(200);
 	}
 
 	/* Wait door to opened */
@@ -1043,14 +1057,88 @@ int8_t door_init(void)
 
 #ifdef CONFIG_APP_DOOR_FACTORY_TEST
 
-int8_t door_factory_test(void)
+/** Test single door **/
+
+int door_ft_open(int layer)
 {
+	return door_open(layer);
+}
+
+int door_ft_close(int layer)
+{
+	return door_close(layer);
+}
+
+int door_ft_stop(int layer)
+{
+	door_stop_write_gpio(layer);
+	return 0;
+}
+
+/** Test all doors **/
+
+int door_ft_open_all(void)
+{
+	return door_admin_open();
+}
+
+int door_ft_close_all(void)
+{
+	return door_admin_close();
+}
+
+int door_ft_stop_all(void)
+{
+	for ( int i = 1; i <= 4; ++i )
+	{
+		door_stop_write_gpio(i);
+	}
 	return 0;
 }
 
 #endif /* CONFIG_APP_DOOR_FACTORY_TEST */
 
 #ifdef CONFIG_APP_DOOR_DEBUG
+
+void door_debug_(void)
+{
+	int i;
+	door_gpio_init();
+	while ( 1 )
+	{
+		/* 1 */
+		printk("Open all four doors...\n");
+		for ( i = 1; i <= 4; ++i )
+		{
+			door_open_write_gpio(i);
+		}
+		k_sleep(5000);
+
+		/* 2 */
+		printk("Stop all four doors...\n");
+		for ( i = 1; i <= 4; ++i )
+		{
+			door_stop_write_gpio(i);
+		}
+		k_sleep(5000);
+
+		/* 3 */
+		printk("Close all four doors...\n");
+		for ( i = 1; i <= 4; ++i )
+		{
+			door_close_write_gpio(i);
+		}
+		k_sleep(5000);
+
+		/* 4 */
+		printk("Stop all four doors...\n");
+		for ( i = 1; i <= 4; ++i )
+		{
+			door_stop_write_gpio(i);
+		}
+		k_sleep(5000);
+	}
+}
 
 void door_debug(void)
 {

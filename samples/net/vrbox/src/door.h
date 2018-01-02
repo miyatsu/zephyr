@@ -79,7 +79,13 @@ int8_t door_admin_open(void);
 int8_t door_admin_close(void);
 
 #ifdef CONFIG_APP_DOOR_FACTORY_TEST
-int8_t door_factory_test(void);
+int door_ft_open(int layer);
+int door_ft_close(int layer);
+int door_ft_stop(int layer);
+
+int door_ft_open_all(void);
+int door_ft_close_all(void);
+int door_ft_stop_all(void);
 #endif /* CONFIG_APP_DOOR_FACTORY_TEST */
 
 #ifdef CONFIG_APP_DOOR_DEBUG
