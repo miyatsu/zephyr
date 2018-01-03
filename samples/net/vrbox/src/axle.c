@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 Shenzhen Trylong Intelligence Technology Co., Ltd. All rights reserved.
+ * Copyright (c) 2017-2018 Shenzhen Trylong Intelligence Technology Co., Ltd. All rights reserved.
  *
  * @file axle.c
  *
@@ -853,6 +853,21 @@ int axle_ft_rotate_stop(void)
 	axle_set_rotate_lock_unlock(0);
 
 	return 0;
+}
+
+int axle_ft_position(void)
+{
+	return axle_position_read();
+}
+
+int axle_ft_relocation(void)
+{
+	return axle_init();
+}
+
+int axle_ft_rotate_to(int position)
+{
+	return axle_rotate_to(position);
 }
 
 #endif /* CONFIG_APP_AXLE_FACTORY_TEST */

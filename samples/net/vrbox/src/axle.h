@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 Shenzhen Trylong Intelligence Technology Co., Ltd. Allrights reserved.
+ * Copyright (c) 2017-2018 Shenzhen Trylong Intelligence Technology Co., Ltd. All rights reserved.
  *
  * @file axle.h
  *
@@ -38,14 +38,12 @@ int8_t axle_init(void);
 int8_t axle_rotate_to(uint8_t destination_position);
 
 /**
- * @brief Rotate to next position
+ * @brief Get axle functionality status
  *
- * This function is for administrator usage only
- *
- * @return  0, rotate success
- *		   -1, rotate error
+ * @return  true, axle is fine
+ *		    false, axle is broken
  * */
-int8_t axle_rotate_to_next(void);
+bool axle_get_status(void);
 
 #ifdef CONFIG_APP_AXLE_FACTORY_TEST
 int axle_ft_lock(void);
@@ -53,6 +51,10 @@ int axle_ft_unlock(void);
 int axle_ft_rotate_desc(void);
 int axle_ft_rotate_asc(void);
 int axle_ft_rotate_stop(void);
+
+int axle_ft_position(void);
+int axle_ft_relocation(void);
+int axle_ft_rotate_to(int position);
 #endif /* CONFIG_APP_AXLE_FACTORY_TEST */
 
 #ifdef CONFIG_APP_AXLE_DEBUG
