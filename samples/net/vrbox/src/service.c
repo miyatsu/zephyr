@@ -3,13 +3,17 @@
 
 #include <kernel.h>
 
+#include <dfu/mcuboot.h>
+
 #include <misc/reboot.h>
 #include <misc/printk.h>
 
 #include "config.h"
 #include "parson.h"
+#include "dfu_http.h"
+#include "mqtt.h"
 
-#include "json.h"
+#include "service.h"
 
 #include "axle.h"
 #include "door.h"
@@ -37,6 +41,7 @@ static const char *cmd_table[] =
 	"headset_add",
 	"headset_recount",
 	"dfu",
+	"factory_test",
 
 	/* out cmd */
 	"status",
@@ -67,7 +72,7 @@ static int service_dfu(JSON_Value *root_in)
 	int rc = 0;
 
 	JSON_Value *root_out	= NULL;
-	char *sub_cmd			= NULL;
+	const char *sub_cmd		= NULL;
 
 	/* Check incoming json param */
 	if ( NULL == root_in )
@@ -104,11 +109,11 @@ static int service_dfu(JSON_Value *root_in)
 	if ( 0 == strcmp(sub_cmd, "upgrade") )
 	{
 		/* Local variables in "if" code block */
-		char *url = NULL;
-		char *md5 = NULL;
-		int size  = 0;
+		const char *url		= NULL;
+		const char *md5		= NULL;
+		int size			= 0;
 
-		char *message = NULL;
+		char *message		= NULL;
 
 		/**
 		 * Use rc as error_code
@@ -271,7 +276,6 @@ int service_send_error_log(const char *msg)
 	}
 
 	rc = mqtt_msg_send(json);
-	printk("[RC = %d]%s\n", rc, json);
 
 	/* Release heap memory */
 	json_free_serialized_string(json);
@@ -356,6 +360,8 @@ static void out_json_add_status_field(JSON_Value *root_out)
 
 	/* Add "headset_stock" field into json */
 	json_object_set_number(json_object(root_out), "headset_stock", headset_stock);
+
+	json_object_set_string(json_object(root_out), "version", CONFIG_APP_DFU_VERSION_STRING);
 }
 
 /**
@@ -718,7 +724,6 @@ static void run_cmd_close(JSON_Value *root_in, JSON_Value *root_out)
 	}
 	json_object_set_number(json_object(root_out), "error_code", error_code);
 
-out:
 	out_json_comm(root_in, root_out);
 }
 
@@ -837,6 +842,283 @@ static void run_cmd_headset_recount(JSON_Value *root_in, JSON_Value *root_out)
 	out_json_comm(root_in, root_out);
 }
 
+static void run_cmd_factory_test(JSON_Value *root_in, JSON_Value *root_out)
+{
+	enum conponent_enum {
+		COMPONENT_START = 0,
+		COMPONENT_AXLE = COMPONENT_START,
+		COMPONENT_DOOR,
+		COMPONENT_INFRARED,
+		COMPONENT_NULL,
+		COMPONENT_END = COMPONENT_NULL,
+	};
+	const static char *component_table[] = {"axle", "door", "infrared", NULL};
+
+	int i, rc = 0;
+
+	const char *component = NULL;
+	const char *operation = NULL;
+
+	int parameter = -1;
+
+	const char *ext		= NULL;
+
+	char *json		= NULL;
+
+	component = json_object_get_string(json_object(root_in), "component");
+	if ( NULL == component )
+	{
+		rc = -EINVAL;
+		goto out;
+	}
+
+	operation = json_object_get_string(json_object(root_in), "operation");
+	if ( NULL == operation )
+	{
+		rc = -EINVAL;
+		goto out;
+	}
+
+	/* returns 0 on fail */
+	parameter = json_object_get_number(json_object(root_in), "parameter");
+
+	ext = json_object_get_string(json_object(root_in), "ext");
+
+
+	for ( i = COMPONENT_START; i < COMPONENT_END; ++i )
+	{
+		if ( 0 == strcmp(component, component_table[i]) )
+		{
+			break;
+		}
+	}
+
+	switch ( i )
+	{
+		case COMPONENT_AXLE:
+			goto axle;
+		case COMPONENT_DOOR:
+			goto door;
+		case COMPONENT_INFRARED:
+			goto infrared;
+		case COMPONENT_NULL:
+		default:
+			rc = -EINVAL;
+			goto out;
+	}
+
+axle:
+{
+	enum operation_axle_enum {
+		OPERATION_AXLE_START = 0,
+		OPERATION_AXLE_LOCK = OPERATION_AXLE_START,
+		OPERATION_AXLE_UNLOCK,
+		OPERATION_AXLE_ROTATE_DESC,
+		OPERATION_AXLE_ROTATE_ASC,
+		OPERATION_AXLE_ROTATE_STOP,
+		OPERATION_AXLE_POSITION,
+		OPERATION_AXLE_RELOCATION,
+		OPERATION_AXLE_ROTATE_TO,
+		OPERATION_AXLE_NULL,
+		OPERATION_AXLE_END = OPERATION_AXLE_NULL,
+	};
+	const static char *operation_axle_table[] = {"lock", "unlock", "rotate_desc",
+		"rotate_asc", "rotate_stop", "position", "relocation", "rotate_to", NULL};
+
+	for ( i = OPERATION_AXLE_START; i < OPERATION_AXLE_END; ++i )
+	{
+		if ( 0 == strcmp(operation, operation_axle_table[i]) )
+		{
+			break;
+		}
+	}
+
+	switch ( i )
+	{
+		case OPERATION_AXLE_LOCK:
+			rc = axle_ft_lock();
+			break;
+		case OPERATION_AXLE_UNLOCK:
+			rc = axle_ft_unlock();
+			break;
+		case OPERATION_AXLE_ROTATE_DESC:
+			rc = axle_ft_rotate_desc();
+			break;
+		case OPERATION_AXLE_ROTATE_ASC:
+			rc = axle_ft_rotate_asc();
+			break;
+		case OPERATION_AXLE_ROTATE_STOP:
+			rc = axle_ft_rotate_stop();
+			break;
+		case OPERATION_AXLE_POSITION:
+			rc = axle_ft_position();
+			json_object_set_number(json_object(root_out), "position", rc);
+			rc = 0;
+			break;
+		case OPERATION_AXLE_RELOCATION:
+			rc = axle_ft_relocation();
+			break;
+		case OPERATION_AXLE_ROTATE_TO:
+			if ( !(parameter >= 1 && parameter <= 7) )
+			{
+				rc = -EINVAL;
+				goto out;
+			}
+			rc = axle_ft_rotate_to(parameter);
+			break;
+		case OPERATION_AXLE_NULL:
+		default:
+			rc = -EINVAL;
+			break;
+	}
+
+	goto out;
+}
+
+door:
+{
+	enum operation_door_enum {
+		OPERATION_DOOR_START = 0,
+		OPERATION_DOOR_OPEN = OPERATION_DOOR_START,
+		OPERATION_DOOR_CLOSE,
+		OPERATION_DOOR_STOP,
+		OPERATION_DOOR_OPEN_ALL,
+		OPERATION_DOOR_CLOSE_ALL,
+		OPERATION_DOOR_STOP_ALL,
+		OPERATION_DOOR_NULL,
+		OPERATION_DOOR_END = OPERATION_DOOR_NULL,
+	};
+	const static char *operation_door_table[] = {"open", "close", "stop",
+		"open_all", "close_all", "stop_all", NULL};
+
+	for ( i = OPERATION_DOOR_START; i < OPERATION_DOOR_END; ++i )
+	{
+		if ( 0 == strcmp(operation, operation_door_table[i]) )
+		{
+			break;
+		}
+	}
+
+	switch ( i )
+	{
+		case OPERATION_DOOR_OPEN:
+			/* Boundray check */
+			if ( !(parameter >= 1 && parameter <= 4) )
+			{
+				rc = -EINVAL;
+				break;
+			}
+
+			rc = door_ft_open(parameter);
+			break;
+		case OPERATION_DOOR_CLOSE:
+			/* Boundray check */
+			if ( !(parameter >= 1 && parameter <= 4) )
+			{
+				rc = -EINVAL;
+				break;
+			}
+
+			rc = door_ft_close(parameter);
+			break;
+		case OPERATION_DOOR_STOP:
+			/* Boundray check */
+			if ( !(parameter >= 1 && parameter <= 4) )
+			{
+				rc = -EINVAL;
+				break;
+			}
+
+			rc = door_ft_stop(parameter);
+			break;
+		case OPERATION_DOOR_OPEN_ALL:
+			rc = door_ft_open_all();
+			break;
+		case OPERATION_DOOR_CLOSE_ALL:
+			rc = door_ft_close_all();
+			break;
+		case OPERATION_DOOR_STOP_ALL:
+			rc = door_ft_stop_all();
+			break;
+		case OPERATION_DOOR_NULL:
+		default:
+			rc = -EINVAL;
+			break;
+	}
+
+	goto out;
+}
+
+infrared:
+{
+	enum operation_infrared_enum {
+		OPERATION_INFRARED_START = 0,
+		OPERATION_INFRARED_REFRESH = OPERATION_INFRARED_START,
+		OPERATION_INFRARED_NULL,
+		OPERATION_INFRARED_END = OPERATION_INFRARED_NULL,
+	};
+	const static char *operation_infrared_table[] = {"refresh", NULL};
+
+	for ( i = OPERATION_INFRARED_START; i < OPERATION_INFRARED_END; ++i )
+	{
+		if ( 0 == strcmp(operation, operation_infrared_table[i]) )
+		{
+			break;
+		}
+	}
+
+	switch ( i )
+	{
+		case OPERATION_INFRARED_REFRESH:
+		{
+			int j, k;
+			uint8_t *box_status_array = infrared_ft_refresh();
+
+			JSON_Value *box_out		= json_value_init_array();
+			JSON_Value *box_in[4]	= {NULL, NULL, NULL, NULL};
+
+			for ( j = 0; j < 4; ++j )
+			{
+				box_in[i] = json_value_init_array();
+				if ( NULL == box_in[i] )
+				{
+					rc = -EINVAL;
+					goto out;
+				}
+
+				for ( k = 0; k < 7; ++k )
+				{
+					json_array_append_number(json_array(box_in[i]),
+							box_status_array[j * 7 + k]);
+				}
+				json_array_append_value(json_array(box_out), box_in[i]);
+			}
+			json_object_set_value(json_object(root_out), "cabinets", box_out);
+
+			rc = 0;
+
+			break;
+		}
+		case OPERATION_INFRARED_NULL:
+		default:
+			rc = -EINVAL;
+			break;
+	}
+
+	goto out;
+}
+
+out:
+	json_object_set_string(json_object(root_out), "cmd", "factory_test");
+	json_object_set_string(json_object(root_out), "ext", ext);
+	json_object_set_number(json_object(root_out), "error_code", rc);
+
+	json = json_serialize_to_string(root_out);
+
+	mqtt_msg_send(json);
+
+	json_free_serialized_string(json);
+}
 
 int service_cmd_parse(uint8_t *msg, size_t msg_len)
 {
@@ -849,6 +1131,7 @@ int service_cmd_parse(uint8_t *msg, size_t msg_len)
 	JSON_Value * root_in	= NULL;
 	JSON_Value * root_out	= NULL;
 
+	/* Local buff */
 	buff = k_malloc(msg_len + 1);
 	if ( NULL == buff )
 	{
@@ -942,6 +1225,9 @@ int service_cmd_parse(uint8_t *msg, size_t msg_len)
 		case CMD_DFU:
 			service_dfu(root_in);
 			break;
+		case CMD_FACTORY_TEST:
+			run_cmd_factory_test(root_in, root_out);
+			break;
 		default:
 			SYS_LOG_ERR("Impossibile index!");
 			rc = -EINVAL;
@@ -955,7 +1241,7 @@ out:
 	return rc;
 }
 
-#ifdef CONFIG_APP_JSON_DEBUG
+#ifdef CONFIG_APP_SERVICE_DEBUG
 
 void json_debug(void)
 {
@@ -1026,5 +1312,5 @@ void json_debug_(void)
 	return ;
 }
 
-#endif /* CONFIG_APP_JSON_DEBUG */
+#endif /* CONFIG_APP_SERVICE_DEBUG */
 

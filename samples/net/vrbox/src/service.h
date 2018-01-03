@@ -1,5 +1,5 @@
-#ifndef JSON_H
-#define JSON_H
+#ifndef SERVICE_H
+#define SERVICE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,8 +18,10 @@ enum cmd_table_index_e
 	CMD_ADMIN_CLOSE,
 	CMD_HEADSET_BUY,
 	CMD_HEADSET_ADD,
+	CMD_HEADSET_RECOUNT,
 	CMD_DFU,
-	CMD_IN_END = CMD_DFU,
+	CMD_FACTORY_TEST,
+	CMD_IN_END = CMD_FACTORY_TEST,
 
 	/* out cmd */
 	CMD_OUT_START,
@@ -48,9 +50,12 @@ enum cmd_table_index_e
 	CMD_NULL,
 };
 
+int service_cmd_parse(uint8_t *msg, size_t mes_len);
+int service_send_error_log(const char *msg);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
 
-#endif /* JSON_H */
+#endif /* SERVICE_H */
 
