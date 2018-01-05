@@ -972,7 +972,7 @@ static void run_cmd_factory_test(JSON_Value *root_in, JSON_Value *root_out)
 
 #ifdef CONFIG_APP_AXLE_FACTORY_TEST
 		COMPONENT_AXLE,
-#endif /* CONFIG_APP_FACTORY_TEST */
+#endif /* CONFIG_APP_AXLE_FACTORY_TEST */
 
 #ifdef CONFIG_APP_DOOR_FACTORY_TEST
 		COMPONENT_DOOR,
