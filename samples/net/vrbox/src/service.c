@@ -1,3 +1,18 @@
+/**
+ * Copyright (c) 2017-2018 Shenzhen Trylong Intelligence Technology Co., Ltd. All rights reserved.
+ *
+ * @fiel service.c
+ *
+ * @brief All API expose to upper machine
+ *
+ * This is the implementation of all APIs that expose to upper machine, include
+ * dfu, error_log, admin relative command, and so on.
+ *
+ * @author Ding Tao <miyatsu@qq.com>
+ *
+ * @date 20:58:18 January 4, 2018 GTM+8
+ *
+ * */
 #include <stdint.h>
 #include <string.h>
 
@@ -28,6 +43,57 @@
 #endif /* CONFIG_APP_JSON_DEBUG */
 #include <logging/sys_log.h>
 
+enum cmd_table_index_e
+{
+	CMD_START = 0,
+	/* in cmd */
+	CMD_IN_START = CMD_START,
+	CMD_GET_STATUS = CMD_IN_START,
+	CMD_OPEN,
+	CMD_CLOSE,
+	CMD_ADMIN_FETCH,
+	CMD_ADMIN_ROTATE,
+	CMD_ADMIN_CLOSE,
+	CMD_HEADSET_BUY,
+	CMD_HEADSET_ADD,
+	CMD_HEADSET_RECOUNT,
+	CMD_DFU,
+#ifdef CONFIG_APP_FACTORY_TEST
+	CMD_FACTORY_TEST,
+	CMD_IN_END = CMD_FACTORY_TEST,
+#else
+	CMD_IN_END = CMD_DFU,
+#endif /* CONFIG_APP_FACTORY_TEST */
+
+	/* out cmd */
+	CMD_OUT_START,
+	CMD_STATUS = CMD_OUT_START,
+
+	CMD_OPEN_OK,
+	CMD_OPEN_ERROR,
+
+	CMD_ADMIN_FETCH_OK,
+	CMD_ADMIN_FETCH_ERROR,
+	CMD_ADMIN_ROTATE_OK,
+	CMD_ADMIN_ROTATE_ERROR,
+	CMD_ADMIN_CLOSE_OK,
+	CMD_ADMIN_CLOSE_ERROR,
+
+	CMD_HEADSET_BUY_OK,
+	CMD_HEADSET_BUY_ERROR,
+	CMD_HEADSET_ADD_OK,
+	CMD_HEADSET_ADD_ERROR,
+	CMD_HEADSET_RECOUNT_OK,
+	CMD_HEADSET_RECOUNT_ERROR,
+
+	CMD_ERROR_LOG,
+
+	CMD_OUT_END = CMD_ERROR_LOG,
+	CMD_END = CMD_OUT_END,
+
+	CMD_NULL,
+};
+
 static const char *cmd_table[] =
 {
 	/* in cmd */
@@ -41,7 +107,9 @@ static const char *cmd_table[] =
 	"headset_add",
 	"headset_recount",
 	"dfu",
+#ifdef CONFIG_APP_FACTORY_TEST
 	"factory_test",
+#endif /* CONFIG_APP_FACTORY_TEST */
 
 	/* out cmd */
 	"status",
@@ -60,6 +128,8 @@ static const char *cmd_table[] =
 	"headset_buy_error",
 	"headset_add_ok",
 	"headset_add_error",
+	"headset_recount_ok",
+	"headset_recount_error",
 
 	"error_log",
 
@@ -760,6 +830,7 @@ out:
 	else
 	{
 		json_object_set_string(json_object(root_out), "cmd", "admin_fetch_error");
+		json_object_set_number(json_object(root_out), "error_code", rc);
 	}
 
 	out_json_comm(root_in, root_out);
@@ -774,13 +845,17 @@ static void run_cmd_admin_rotate(JSON_Value *root_in, JSON_Value *root_out)
 		return ;
 	}
 
-	if ( 0 == axle_rotate_to(position) )
+	int rc = 0;
+
+	rc = axle_rotate_to(position);
+	if ( 0 == rc )
 	{
 		json_object_set_string(json_object(root_out), "cmd", "admin_rotate_ok");
 	}
 	else
 	{
 		json_object_set_string(json_object(root_out), "cmd", "admin_rotate_error");
+		json_object_set_number(json_object(root_out), "error_code", rc);
 	}
 
 	out_json_comm(root_in, root_out);
@@ -788,13 +863,17 @@ static void run_cmd_admin_rotate(JSON_Value *root_in, JSON_Value *root_out)
 
 static void run_cmd_admin_close(JSON_Value *root_in, JSON_Value *root_out)
 {
-	if ( 0 == door_admin_close() )
+	int rc = 0;
+
+	rc = door_admin_close();
+	if ( 0 == rc )
 	{
 		json_object_set_string(json_object(root_out), "cmd", "admin_close_ok");
 	}
 	else
 	{
 		json_object_set_string(json_object(root_out), "cmd", "admin_close_error");
+		json_object_set_number(json_object(root_out), "error_code", rc);
 	}
 
 	out_json_comm(root_in, root_out);
@@ -802,13 +881,17 @@ static void run_cmd_admin_close(JSON_Value *root_in, JSON_Value *root_out)
 
 static void run_cmd_headset_buy(JSON_Value *root_in, JSON_Value *root_out)
 {
-	if ( 0 == headset_buy() )
+	int rc = 0;
+
+	rc = headset_buy();
+	if ( 0 == rc )
 	{
 		json_object_set_string(json_object(root_out), "cmd", "headset_buy_ok");
 	}
 	else
 	{
 		json_object_set_string(json_object(root_out), "cmd", "headset_buy_error");
+		json_object_set_number(json_object(root_out), "error_code", rc);
 	}
 
 	out_json_comm(root_in, root_out);
@@ -816,13 +899,17 @@ static void run_cmd_headset_buy(JSON_Value *root_in, JSON_Value *root_out)
 
 static void run_cmd_headset_add(JSON_Value *root_in, JSON_Value *root_out)
 {
-	if ( 0 == headset_add() )
+	int rc = 0;
+
+	rc = headset_add();
+	if ( 0 == rc )
 	{
 		json_object_set_string(json_object(root_out), "cmd", "headset_add_ok");
 	}
 	else
 	{
 		json_object_set_string(json_object(root_out), "cmd", "headset_add_error");
+		json_object_set_number(json_object(root_out), "error_code", rc);
 	}
 
 	out_json_comm(root_in, root_out);
@@ -830,30 +917,26 @@ static void run_cmd_headset_add(JSON_Value *root_in, JSON_Value *root_out)
 
 static void run_cmd_headset_recount(JSON_Value *root_in, JSON_Value *root_out)
 {
-	if ( 0 == headset_init() )
+	int rc = 0;
+
+	rc = headset_stock_init();
+	if ( 0 != rc )
 	{
 		json_object_set_string(json_object(root_out), "cmd", "headset_recount_ok");
 	}
 	else
 	{
 		json_object_set_string(json_object(root_out), "cmd", "headset_recount_error");
+		json_object_set_number(json_object(root_out), "error_code", rc);
 	}
 
 	out_json_comm(root_in, root_out);
 }
 
+#ifdef CONFIG_APP_FACTORY_TEST
+
 static void run_cmd_factory_test(JSON_Value *root_in, JSON_Value *root_out)
 {
-	enum conponent_enum {
-		COMPONENT_START = 0,
-		COMPONENT_AXLE = COMPONENT_START,
-		COMPONENT_DOOR,
-		COMPONENT_INFRARED,
-		COMPONENT_NULL,
-		COMPONENT_END = COMPONENT_NULL,
-	};
-	const static char *component_table[] = {"axle", "door", "infrared", NULL};
-
 	int i, rc = 0;
 
 	const char *component = NULL;
@@ -884,8 +967,50 @@ static void run_cmd_factory_test(JSON_Value *root_in, JSON_Value *root_out)
 
 	ext = json_object_get_string(json_object(root_in), "ext");
 
+	enum conponent_enum {
+		COMPONENT_START = -1,
 
-	for ( i = COMPONENT_START; i < COMPONENT_END; ++i )
+#ifdef CONFIG_APP_AXLE_FACTORY_TEST
+		COMPONENT_AXLE,
+#endif /* CONFIG_APP_FACTORY_TEST */
+
+#ifdef CONFIG_APP_DOOR_FACTORY_TEST
+		COMPONENT_DOOR,
+#endif /* CONFIG_APP_DOOR_FACTORY_TEST */
+
+#ifdef CONFIG_APP_INFRARED_FACTORY_TEST
+		COMPONENT_INFRARED,
+#endif /* CONFIG_APP_INFRARED_FACTORY_TEST */
+
+#ifdef CONFIG_APP_HEADSET_FACTORY_TEST
+		COMPONENT_HEADSET,
+#endif /* CONFIG_APP_HEADSET_FACTORY_TEST */
+
+		COMPONENT_NULL,
+		COMPONENT_END = COMPONENT_NULL,
+	};
+	const static char *component_table[] = {
+
+#ifdef CONFIG_APP_AXLE_FACTORY_TEST
+		"axle",
+#endif /* CONFIG_APP_AXLE_FACTORY_TEST */
+
+#ifdef CONFIG_APP_DOOR_FACTORY_TEST
+		"door",
+#endif /* CONFIG_APP_DOOR_FACTORY_TEST */
+
+#ifdef CONFIG_APP_INFRARED_FACTORY_TEST
+		"infrared",
+#endif /* CONFIG_APP_INFRARED_FACTORY_TEST */
+
+#ifdef CONFIG_APP_HEADSET_FACTORY_TEST
+		"headset",
+#endif /* CONFIG_APP_HEADSET_FACTORY_TEST */
+
+		NULL
+	};
+
+	for ( i = COMPONENT_START + 1; i < COMPONENT_END; ++i )
 	{
 		if ( 0 == strcmp(component, component_table[i]) )
 		{
@@ -895,17 +1020,32 @@ static void run_cmd_factory_test(JSON_Value *root_in, JSON_Value *root_out)
 
 	switch ( i )
 	{
+#ifdef CONFIG_APP_AXLE_FACTORY_TEST
 		case COMPONENT_AXLE:
 			goto axle;
+#endif /* CONFIG_APP_AXLE_FACROTY_TEST */
+
+#ifdef CONFIG_APP_DOOR_FACTORY_TEST
 		case COMPONENT_DOOR:
 			goto door;
+#endif /* CONFIG_APP_DOOR_FACTORY_TEST */
+
+#ifdef CONFIG_APP_INFRARED_FACTORY_TEST
 		case COMPONENT_INFRARED:
 			goto infrared;
+#endif /* CONFIG_APP_INFRARED_FACTORY_TEST */
+
+#ifdef CONFIG_APP_HEADSET_FACTORY_TEST
+		case COMPONENT_HEADSET:
+			goto headset;
+#endif /* CONFIG_APP_HEADSET_FACTORY_TEST */
 		case COMPONENT_NULL:
 		default:
 			rc = -EINVAL;
 			goto out;
 	}
+
+#ifdef CONFIG_APP_AXLE_FACTORY_TEST
 
 axle:
 {
@@ -922,8 +1062,17 @@ axle:
 		OPERATION_AXLE_NULL,
 		OPERATION_AXLE_END = OPERATION_AXLE_NULL,
 	};
-	const static char *operation_axle_table[] = {"lock", "unlock", "rotate_desc",
-		"rotate_asc", "rotate_stop", "position", "relocation", "rotate_to", NULL};
+	const static char *operation_axle_table[] = {
+		"lock",
+		"unlock",
+		"rotate_desc",
+		"rotate_asc",
+		"rotate_stop",
+		"position",
+		"relocation",
+		"rotate_to",
+		NULL
+	};
 
 	for ( i = OPERATION_AXLE_START; i < OPERATION_AXLE_END; ++i )
 	{
@@ -975,6 +1124,10 @@ axle:
 	goto out;
 }
 
+#endif /* CONFIG_APP_AXLE_FACTORY_TEST */
+
+#ifdef CONFIG_APP_DOOR_FACTORY_TEST
+
 door:
 {
 	enum operation_door_enum {
@@ -988,8 +1141,15 @@ door:
 		OPERATION_DOOR_NULL,
 		OPERATION_DOOR_END = OPERATION_DOOR_NULL,
 	};
-	const static char *operation_door_table[] = {"open", "close", "stop",
-		"open_all", "close_all", "stop_all", NULL};
+	const static char *operation_door_table[] = {
+		"open",
+		"close",
+		"stop",
+		"open_all",
+		"close_all",
+		"stop_all",
+		NULL
+	};
 
 	for ( i = OPERATION_DOOR_START; i < OPERATION_DOOR_END; ++i )
 	{
@@ -1049,6 +1209,10 @@ door:
 	goto out;
 }
 
+#endif /* CONFIG_APP_DOOR_FACTORY_TEST */
+
+#ifdef CONFIG_APP_INFRARED_FACTORY_TEST
+
 infrared:
 {
 	enum operation_infrared_enum {
@@ -1057,7 +1221,10 @@ infrared:
 		OPERATION_INFRARED_NULL,
 		OPERATION_INFRARED_END = OPERATION_INFRARED_NULL,
 	};
-	const static char *operation_infrared_table[] = {"refresh", NULL};
+	const static char *operation_infrared_table[] = {
+		"refresh",
+		NULL
+	};
 
 	for ( i = OPERATION_INFRARED_START; i < OPERATION_INFRARED_END; ++i )
 	{
@@ -1108,6 +1275,68 @@ infrared:
 	goto out;
 }
 
+#endif /* CONFIG_APP_INFRARED_FACTORY_TEST */
+
+#ifdef CONFIG_APP_HEADSET_FACTORY_TEST
+
+headset:
+{
+	enum operation_headset_enum {
+		OPERATION_HEADSET_START = 0,
+		OPERATION_HEADSET_ROTATE = OPERATION_HEADSET_START,
+		OPERATION_HEADSET_STOP,
+		OPERATION_HEADSET_PUSH,
+		OPERATION_HEADSET_INFRARED,
+		OPERATION_HEADSET_ACCURACY,
+		OPERATION_HEADSET_NULL,
+		OPERATION_HEADSET_END = OPERATION_HEADSET_NULL
+	};
+	const static char *operation_headset_table[] = {
+		"rotate",
+		"stop",
+		"push",
+		"infrared",
+		"accuracy",
+		NULL
+	};
+
+	for ( i = OPERATION_HEADSET_START; i < OPERATION_HEADSET_END; ++i )
+	{
+		if ( 0 == strcmp(operation, operation_headset_table[i]) )
+		{
+			break;
+		}
+	}
+
+	switch ( i )
+	{
+		case OPERATION_HEADSET_ROTATE:
+			rc = headset_ft_rotate();
+			break;
+		case OPERATION_HEADSET_STOP:
+			rc = headset_ft_stop();
+			break;
+		case OPERATION_HEADSET_PUSH:
+			rc = headset_ft_push();
+			break;
+		case OPERATION_HEADSET_INFRARED:
+			rc = headset_ft_infrared();
+			json_object_set_number(json_object(root_out), "infrared", rc);
+			rc = 0;
+			break;
+		case OPERATION_HEADSET_ACCURACY:
+			rc = headset_ft_accuracy();
+		case OPERATION_HEADSET_NULL:
+		default:
+			rc = -EINVAL;
+			break;
+	}
+
+	goto out;
+}
+
+#endif /* CONFIG_APP_HEADSET_FACTORY_TEST */
+
 out:
 	json_object_set_string(json_object(root_out), "cmd", "factory_test");
 	json_object_set_string(json_object(root_out), "ext", ext);
@@ -1119,6 +1348,8 @@ out:
 
 	json_free_serialized_string(json);
 }
+
+#endif /* CONFIG_APP_FACTORY_TEST */
 
 int service_cmd_parse(uint8_t *msg, size_t msg_len)
 {
@@ -1225,12 +1456,15 @@ int service_cmd_parse(uint8_t *msg, size_t msg_len)
 		case CMD_DFU:
 			service_dfu(root_in);
 			break;
+#ifdef CONFIG_APP_FACTORY_TEST
 		case CMD_FACTORY_TEST:
 			run_cmd_factory_test(root_in, root_out);
 			break;
+#endif /* CONFIG_APP_FACTORY_TEST */
 		default:
 			SYS_LOG_ERR("Impossibile index!");
 			rc = -EINVAL;
+			goto out;
 	}
 	rc = 0;
 
