@@ -33,7 +33,7 @@ int8_t door_init(void);
  *
  * @return pointer point to door status array
  * */
-const bool* door_get_status(void);
+bool* door_get_status_array(void);
 
 /**
  * @brief Public wrapper function of door open
