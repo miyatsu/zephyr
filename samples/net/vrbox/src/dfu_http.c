@@ -18,6 +18,7 @@
 #include <net/http.h>
 
 #include <dfu/flash_img.h>
+#include <dfu/mcuboot.h>
 
 #include <mbedtls/md5.h>
 
@@ -39,6 +40,12 @@
 	#define SYS_LOG_LEVEL	SYS_LOG_LEVEL_ERROR
 #endif /* CONFIG_APP_DFU_HTTP_DEBUG */
 #include <logging/sys_log.h>
+
+#if !defined(CONFIG_IMG_MANAGER)
+
+#warning "No dfu support!"
+
+#else
 
 struct http_user_data
 {
@@ -175,7 +182,7 @@ static int dfu_get_firmware_via_http(struct http_ctx *http_ctx,
 	http_user_data.http_recv_bytes	= 0;
 	k_sem_init(&http_user_data.sem, 0, 1);
 
-	/* Erase sector */
+	/* Erase slot1 before download */
 	rc = boot_erase_img_bank(FLASH_AREA_IMAGE_1_OFFSET);
 	if ( 0 != rc )
 	{
@@ -461,4 +468,7 @@ void dfu_debug(void)
 }
 
 #endif /* CONFIG_APP_DFU_HTTP_DEBUG */
+
+
+#endif /* !defined(CONFIG_IMG_MANAGER) */
 
