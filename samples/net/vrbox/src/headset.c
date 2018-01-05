@@ -86,7 +86,7 @@ static bool headset_is_dial_in_position(void)
  * @brief Check if there is headset can be push out at the port or not
  *
  * @return true, Headset in position, can push it out
- *		   false, No headset can be push out
+ *		   false, No headset can not be push out
  * */
 static bool headset_is_headset_in_position(void)
 {
@@ -574,9 +574,50 @@ int8_t headset_init(void)
 
 #ifdef CONFIG_APP_HEADSET_FACTORY_TEST
 
-int8_t headset_factory_test(void)
+int headset_ft_rotate(void)
 {
+	headset_dial_rotate_enable_disable(1);
 	return 0;
+}
+
+int headset_ft_stop(void)
+{
+	headset_dial_rotate_enable_disable(0);
+	return 0;
+}
+
+int headset_ft_push(void)
+{
+	headset_handspike_push_pull(1);
+	k_sleep(200);
+	headset_handspike_push_pull(0);
+	return 0;
+}
+
+int headset_ft_infrared(void)
+{
+	return headset_is_headset_in_position() ? 1 : 0;
+}
+
+int headset_ft_accuracy(void)
+{
+	/* Make the headset default in output window */
+	gpio_comm_conf(&headset_gpio_table[2], GPIO_DIR_OUT | GPIO_PUD_PULL_DOWN);
+	gpio_comm_write(&headset_gpio_table[2], 0);
+
+	for ( i = 0; i < 60; ++i )
+	{
+		rc = headset_buy();
+		if ( 0 != rc )
+		{
+			break;
+		}
+	}
+
+	/* Re-initial infrared detector pin */
+	gpio_comm_conf(&headset_gpio_table[2], GPIO_DIR_IN | GPIO_PUD_PULL_UP);
+	gpio_comm_write(&headset_gpio_table[2], 1);
+	return rc;
 }
 
 #endif /* CONFIG_APP_HEADSET_FACTORY_TEST */
