@@ -601,6 +601,8 @@ int headset_ft_infrared(void)
 
 int headset_ft_accuracy(void)
 {
+	int i, rc = 0;
+
 	/* Make the headset default in output window */
 	gpio_comm_conf(&headset_gpio_table[2], GPIO_DIR_OUT | GPIO_PUD_PULL_DOWN);
 	gpio_comm_write(&headset_gpio_table[2], 0);
@@ -617,6 +619,7 @@ int headset_ft_accuracy(void)
 	/* Re-initial infrared detector pin */
 	gpio_comm_conf(&headset_gpio_table[2], GPIO_DIR_IN | GPIO_PUD_PULL_UP);
 	gpio_comm_write(&headset_gpio_table[2], 1);
+
 	return rc;
 }
 
