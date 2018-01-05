@@ -263,3 +263,8 @@ double fabs(double n)
 	return n > 0 ? n : -n;
 }
 
+int abs(int n)
+{
+	return n > 0 ? n : -n;
+}
+
