@@ -17,11 +17,22 @@
 extern "C" {
 #endif /* __cplusplus */
 
+#ifdef CONFIG_SYS_LOG_EXT_HOOK
+
+#include <stdnoreturn.h>
+
 void app_log_hook_func(const char *format, ...);
+int app_log_hook_init(void);
+
+#ifdef CONFIG_FILE_SYSTEM
+int app_log_hook_file_to_fifo(void);
+#endif /* CONFIG_FILE_SYSTEM */
 
 #ifdef CONFIG_APP_LOG_HOOK_DEBUG
-void app_log_hook_debug(void);
+noreturn void app_log_hook_debug(void);
 #endif /* CONFIG_APP_LOG_HOOK_DEBUG */
+
+#endif /* CONFIG_SYS_LOG_EXT_HOOK */
 
 #ifdef __cplusplus
 }
