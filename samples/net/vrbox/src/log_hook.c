@@ -12,6 +12,7 @@
  * */
 #include <stdio.h>
 #include <string.h>
+#include <stdnoreturn.h>
 
 #include <kernel.h>
 
@@ -19,6 +20,7 @@
 #include <fs.h>
 #endif /* CONFIG_FILE_SYSTEM */
 
+#include "service.h"
 #include "config.h"
 
 #include <logging/sys_log.h>
@@ -39,7 +41,7 @@ typedef struct data_item_s
 
 K_FIFO_DEFINE(app_log_hook_dispatch_fifo);
 
-static void app_log_hook_dispatch_thread_entry_point(void *arg1, void *arg2, void *arg3)
+static noreturn void app_log_hook_dispatch_thread_entry_point(void *arg1, void *arg2, void *arg3)
 {
 	ARG_UNUSED(arg1);
 	ARG_UNUSED(arg2);
@@ -63,12 +65,13 @@ static void app_log_hook_dispatch_thread_entry_point(void *arg1, void *arg2, voi
 
 		if ( 0 != rc )
 		{
+
 #ifdef CONFIG_FILE_SYSTEM
 			int app_log_hook_fifo_to_file(const char * buff, size_t buff_len);
 			rc = app_log_hook_fifo_to_file(item->buff, item->buff_size);
-#else
-			/* Drop it when no file system support */
 #endif /* CONFIG_FILE_SYSTEM */
+
+			/* Drop it when no file system support */
 		}
 
 		k_free(item->buff);
@@ -170,6 +173,16 @@ out:
 
 #ifdef CONFIG_FILE_SYSTEM
 
+/**
+ * @brief Save one log message to file
+ *
+ * @param buff Log message string address
+ *
+ * @param buff_len Log message string length
+ *
+ * @return 0 Success
+ *		   < 0 Failed
+ * */
 int app_log_hook_fifo_to_file(const char *buff, size_t buff_len)
 {
 	int rc = 0;
@@ -182,6 +195,7 @@ int app_log_hook_fifo_to_file(const char *buff, size_t buff_len)
 	rc = fs_open(&file, CONFIG_APP_LOG_HOOK_LOG_FILE_NAME);
 	if ( 0 != rc )
 	{
+		printk("Open file error at line %d, rc = %d\n", __LINE__, rc);
 		goto out;
 	}
 
@@ -191,6 +205,7 @@ int app_log_hook_fifo_to_file(const char *buff, size_t buff_len)
 	rc = fs_seek(&file, 0, FS_SEEK_END);
 	if ( 0 != rc )
 	{
+		printk("Seek file position error at line %d, rc = %d\n", __LINE__, rc);
 		goto out;
 	}
 
@@ -221,6 +236,16 @@ out:
 	return rc;
 }
 
+/**
+ * @brief Retrive log message from file and put into dispatch fifo
+ *
+ * WARNING: This function can be called ONLY if the network is avaliable.
+ *
+ * SUGGEST: Use this function right after network is connected or reconnected.
+ *
+ * @return 0 Success
+ *		   <0 Some error happened
+ * */
 int app_log_hook_file_to_fifo(void)
 {
 	int rc = 0;
@@ -268,10 +293,13 @@ int app_log_hook_file_to_fifo(void)
 		n = fs_read(&file, buff, 256);
 		if ( n == 0 )
 		{
+			/* No log message in file */
 			break;
 		}
 		else if ( n < 0 )
 		{
+			/* File read error */
+			SYS_LOG_ERR("File read error at line: %d", __LINE__);
 			rc = n;
 			goto out;
 		}
@@ -291,7 +319,7 @@ int app_log_hook_file_to_fifo(void)
 		}
 
 		/* Copy data */
-		memcpy(item->buff, buff, n + 1);
+		memcpy(item->buff, buff, n);
 
 		/* Terminator of string */
 		item->buff[n] = '\0';
@@ -323,11 +351,6 @@ out:
 	return rc;
 }
 
-#else
-
-#define app_log_hook_file_to_fifo(...)
-#define app_log_hook_fifo_to_file(...)
-
 #endif /* CONFIG_FILE_SYSTEM */
 
 /**
@@ -340,17 +363,20 @@ out:
  * */
 int app_log_hook_init(void)
 {
+	int rc = 0;
+
 	syslog_hook_install(app_log_hook_func);
+
 #ifdef CONFIG_FILE_SYSTEM
-	return app_log_hook_file_to_fifo();
-#else
-	return 0;
+	rc = app_log_hook_file_to_fifo();
 #endif /* CONFIG_FILE_SYSTEM */
+
+	return rc;
 }
 
 #ifdef CONFIG_APP_LOG_HOOK_DEBUG
 
-_Noreturn void app_log_hook_debug(void)
+noreturn void app_log_hook_debug(void)
 {
 	syslog_hook_install(app_log_hook_func);
 	while ( 1 )
