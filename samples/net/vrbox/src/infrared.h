@@ -38,7 +38,7 @@ int8_t infrared_init(void);
 uint8_t* infrared_get_status_array(void);
 
 #ifdef CONFIG_APP_INFRARED_FACTORY_TEST
-int8_t infrared_factory_test(void);
+uint8_t* infrared_ft_refresh(void);
 #endif /* CONFIG_APP_INFRARED_FACTORY_TEST */
 
 #ifdef CONFIG_APP_INFRARED_DEBUG

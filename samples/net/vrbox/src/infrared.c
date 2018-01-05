@@ -194,9 +194,9 @@ int8_t infrared_init(void)
 
 #ifdef CONFIG_APP_INFRARED_FACTORY_TEST
 
-int8_t infrared_factory_test(void)
+uint8_t* infrared_ft_refresh(void)
 {
-	return 0;
+	return infrared_get_status_array();
 }
 
 #endif /* CONFIG_APP_INFRARED_FACTORY_TEST */
