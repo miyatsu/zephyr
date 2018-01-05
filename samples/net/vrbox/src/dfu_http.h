@@ -45,6 +45,8 @@ int dfu_http_download(const char *uri, size_t uri_len);
  * */
 int dfu_md5_check(size_t firmware_size, const char *md5_str);
 
+int dfu_init(void);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
