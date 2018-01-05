@@ -13,11 +13,15 @@
 #ifndef VERSION_H
 #define VERSION_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 #define CONFIG_APP_DFU_VERSION_MAJOR	0
 #define CONFIG_APP_DFU_VERSION_MINOR	0
 #define CONFIG_APP_DFU_VERSION_PATCH	1
 
-#define CONFIG_APP_DFU_VERSION_BUILD	5
+#define CONFIG_APP_DFU_VERSION_BUILD	20
 /**
  * Application version build level,
  * zero means this version is release for production usage,
@@ -58,4 +62,9 @@
 
 #endif	/* CONFIG_APP_DFU_VERSION_BUILD */
 
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* VERSION_H */
+
