@@ -40,7 +40,7 @@ static int flash_stm32_check_status(struct device *dev)
 #if defined(FLASH_FLAG_RDERR)
 		FLASH_FLAG_RDERR  |
 #endif
-#if defined(FLASH_FLAG_PGPERR)
+#if !defined(FLASH_FLAG_PGPERR)
 		FLASH_FLAG_PGPERR |
 #endif
 #if defined(FLASH_FLAG_PGSERR)
