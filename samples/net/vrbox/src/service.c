@@ -396,15 +396,11 @@ static void out_json_add_status_field(JSON_Value *root_out)
 	}
 
 	/* Add "axle" field into json */
-	/* Warning: DEBUG Modify, MUST check twice before release!!! */
-	//json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 0);
-	json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 1);
+	json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 0);
 
 	for ( i = 0; i < 4; ++i )
 	{
-		/* Warning: DEBUG Modify, MUST check twice before release!!! */
-		//json_array_append_number(json_array(door), door_status_array[i] ? 1 : 0);
-		json_array_append_number(json_array(door), door_status_array[i] ? 1 : 1);
+		json_array_append_number(json_array(door), door_status_array[i] ? 1 : 0);
 	}
 
 	/* Add "door" field into json */
