@@ -1037,6 +1037,7 @@ static void run_cmd_factory_test(JSON_Value *root_in, JSON_Value *root_out)
 #endif /* CONFIG_APP_HEADSET_FACTORY_TEST */
 		case COMPONENT_NULL:
 		default:
+			SYS_LOG_ERR("No supported component finded, conponent: %s", component);
 			rc = -EINVAL;
 			goto out;
 	}
@@ -1106,6 +1107,7 @@ axle:
 		case OPERATION_AXLE_ROTATE_TO:
 			if ( !(parameter >= 1 && parameter <= 7) )
 			{
+				SYS_LOG_ERR("Parameter out of range, parameter: %d", parameter);
 				rc = -EINVAL;
 				goto out;
 			}
@@ -1113,6 +1115,7 @@ axle:
 			break;
 		case OPERATION_AXLE_NULL:
 		default:
+			SYS_LOG_ERR("No supported operation finded, operation: %s", operation);
 			rc = -EINVAL;
 			break;
 	}
@@ -1161,6 +1164,7 @@ door:
 			/* Boundray check */
 			if ( !(parameter >= 1 && parameter <= 4) )
 			{
+				SYS_LOG_ERR("Parameter out of range, parameter: %d", parameter);
 				rc = -EINVAL;
 				break;
 			}
@@ -1171,6 +1175,7 @@ door:
 			/* Boundray check */
 			if ( !(parameter >= 1 && parameter <= 4) )
 			{
+				SYS_LOG_ERR("Parameter out of range, parameter: %d", parameter);
 				rc = -EINVAL;
 				break;
 			}
@@ -1181,6 +1186,7 @@ door:
 			/* Boundray check */
 			if ( !(parameter >= 1 && parameter <= 4) )
 			{
+				SYS_LOG_ERR("Parameter out of range, parameter: %d", parameter);
 				rc = -EINVAL;
 				break;
 			}
@@ -1198,6 +1204,7 @@ door:
 			break;
 		case OPERATION_DOOR_NULL:
 		default:
+			SYS_LOG_ERR("No supported operation finded, operation: %s", operation);
 			rc = -EINVAL;
 			break;
 	}
@@ -1264,6 +1271,7 @@ infrared:
 		}
 		case OPERATION_INFRARED_NULL:
 		default:
+			SYS_LOG_ERR("No supported operation finded, operation: %s", operation);
 			rc = -EINVAL;
 			break;
 	}
@@ -1324,6 +1332,7 @@ headset:
 			rc = headset_ft_accuracy();
 		case OPERATION_HEADSET_NULL:
 		default:
+			SYS_LOG_ERR("No supported operation finded, operation: %s", operation);
 			rc = -EINVAL;
 			break;
 	}
