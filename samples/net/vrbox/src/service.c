@@ -1330,6 +1330,7 @@ headset:
 			break;
 		case OPERATION_HEADSET_ACCURACY:
 			rc = headset_ft_accuracy();
+			break;
 		case OPERATION_HEADSET_NULL:
 		default:
 			SYS_LOG_ERR("No supported operation finded, operation: %s", operation);
