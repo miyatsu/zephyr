@@ -1167,19 +1167,9 @@ int16_t SX1276ReadRssi( RadioModems_t modem )
     return rssi;
 }
 
-void SX1276Reset( void )
+__weak void SX1276Reset( void )
 {
-    // Set RESET pin to 0
-    GpioInit( &SX1276.Reset, RADIO_RESET, PIN_OUTPUT, PIN_PUSH_PULL, PIN_NO_PULL, 0 );
-
-    // Wait 1 ms
-    DelayMs( 1 );
-
-    // Configure RESET as input
-    GpioInit( &SX1276.Reset, RADIO_RESET, PIN_INPUT, PIN_PUSH_PULL, PIN_NO_PULL, 1 );
-
-    // Wait 6 ms
-    DelayMs( 6 );
+	return ;
 }
 
 void SX1276SetOpMode( uint8_t opMode )
@@ -1245,39 +1235,14 @@ uint8_t SX1276Read( uint8_t addr )
     return data;
 }
 
-void SX1276WriteBuffer( uint8_t addr, uint8_t *buffer, uint8_t size )
+__weak void SX1276WriteBuffer( uint8_t addr, uint8_t *buffer, uint8_t size )
 {
-    uint8_t i;
-
-    //NSS = 0;
-    GpioWrite( &SX1276.Spi.Nss, 0 );
-
-    SpiInOut( &SX1276.Spi, addr | 0x80 );
-    for( i = 0; i < size; i++ )
-    {
-        SpiInOut( &SX1276.Spi, buffer[i] );
-    }
-
-    //NSS = 1;
-    GpioWrite( &SX1276.Spi.Nss, 1 );
+	return ;
 }
 
-void SX1276ReadBuffer( uint8_t addr, uint8_t *buffer, uint8_t size )
+__weak void SX1276ReadBuffer( uint8_t addr, uint8_t *buffer, uint8_t size )
 {
-    uint8_t i;
-
-    //NSS = 0;
-    GpioWrite( &SX1276.Spi.Nss, 0 );
-
-    SpiInOut( &SX1276.Spi, addr & 0x7F );
-
-    for( i = 0; i < size; i++ )
-    {
-        buffer[i] = SpiInOut( &SX1276.Spi, 0 );
-    }
-
-    //NSS = 1;
-    GpioWrite( &SX1276.Spi.Nss, 1 );
+	return ;
 }
 
 void SX1276WriteFifo( uint8_t *buffer, uint8_t size )
@@ -1686,10 +1651,11 @@ void SX1276OnDio2Irq( void )
             {
             case MODEM_FSK:
                 // Checks if DIO4 is connected. If it is not PreambleDetected is set to true.
-                if( SX1276.DIO4.port == NULL )
+#if !defined(CONFIG_SX1276_DIO4)
                 {
                     SX1276.Settings.FskPacketHandler.PreambleDetected = true;
                 }
+#endif
 
                 if( ( SX1276.Settings.FskPacketHandler.PreambleDetected == true ) && ( SX1276.Settings.FskPacketHandler.SyncWordDetected == false ) )
                 {
