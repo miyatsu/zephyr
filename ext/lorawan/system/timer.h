@@ -15,16 +15,17 @@ Maintainer: Miguel Luis and Gregory Cristian
 #ifndef __TIMER_H__
 #define __TIMER_H__
 
+#include <stdint.h>
+#include <kernel.h>
+
 /*!
  * \brief Timer object description
  */
-typedef struct TimerEvent_s
+typedef struct timer_event
 {
-    uint32_t Timestamp;         //! Current timer value
-    uint32_t ReloadValue;       //! Timer delay value
-    bool IsRunning;             //! Is the timer currently running
-    void ( *Callback )( void ); //! Timer IRQ callback function
-    struct TimerEvent_s *Next;  //! Pointer to the next Timer object.
+	struct k_timer timer;
+	void (*cb)(void);
+	uint32_t period;
 }TimerEvent_t;
 
 /*!
