@@ -110,6 +110,7 @@ static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 	}
 
 #ifdef CONFIG_APP_FACTORY_TEST
+	int mqtt_msg_send(const char *buff);
 	/* Current CMD is factory test, this need return immediately */
 	if ( service_cmd_is_factory_test(msg->msg, msg->msg_len) )
 	{

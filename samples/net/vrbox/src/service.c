@@ -1381,7 +1381,7 @@ out:
 	json_free_serialized_string(json);
 }
 
-bool service_cmd_is_factory_test(uint8_t *msg, size_t msg_len)
+bool service_cmd_is_factory_test(uint8_t *msg, uint16_t msg_len)
 {
 	uint8_t *buff		= NULL;
 	JSON_Value *root	= NULL;
