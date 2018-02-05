@@ -1133,6 +1133,8 @@ door:
 		OPERATION_DOOR_START = 0,
 		OPERATION_DOOR_OPEN = OPERATION_DOOR_START,
 		OPERATION_DOOR_CLOSE,
+		OPERATION_DOOR_OPEN_NO_STOP,
+		OPERATION_DOOR_CLOSE_NO_STOP,
 		OPERATION_DOOR_STOP,
 		OPERATION_DOOR_OPEN_ALL,
 		OPERATION_DOOR_CLOSE_ALL,
@@ -1143,6 +1145,8 @@ door:
 	const static char *operation_door_table[] = {
 		"open",
 		"close",
+		"open_no_stop",
+		"close_no_stop",
 		"stop",
 		"open_all",
 		"close_all",
@@ -1181,6 +1185,28 @@ door:
 			}
 
 			rc = door_ft_close(parameter);
+			break;
+		case OPERATION_DOOR_OPEN_NO_STOP:
+			/* Boundray check */
+			if ( !(parameter >= 1 && parameter <= 4) )
+			{
+				SYS_LOG_ERR("Parameter out of range, parameter: %d", parameter);
+				rc = -EINVAL;
+				break;
+			}
+
+			rc = door_ft_open_no_stop(parameter);
+			break;
+		case OPERATION_DOOR_CLOSE_NO_STOP:
+			/* Boundray check */
+			if ( !(parameter >= 1 && parameter <= 4) )
+			{
+				SYS_LOG_ERR("Parameter out of range, parameter: %d", parameter);
+				rc = -EINVAL;
+				break;
+			}
+
+			rc = door_ft_close_no_stop(parameter);
 			break;
 		case OPERATION_DOOR_STOP:
 			/* Boundray check */

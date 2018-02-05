@@ -1069,6 +1069,18 @@ int door_ft_close(int layer)
 	return door_close(layer);
 }
 
+int door_ft_open_no_stop(int layer)
+{
+	door_open_write_gpio(layer);
+	return 0;
+}
+
+int door_ft_close_no_stop(int layer)
+{
+	door_close_write_gpio(layer);
+	return 0;
+}
+
 int door_ft_stop(int layer)
 {
 	door_stop_write_gpio(layer);
