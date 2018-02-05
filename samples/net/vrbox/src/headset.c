@@ -362,6 +362,9 @@ push:
 	/* Stop rotate */
 	headset_dial_rotate_enable_disable(0);
 
+	/* Wait the dial fully stoped */
+	k_sleep(1000);
+
 	/* Push out headset */
 	headset_handspike_push_pull(1);
 
