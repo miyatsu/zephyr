@@ -109,6 +109,27 @@ static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 		SYS_LOG_ERR("Current packet is not pub message, type = %d", type);
 	}
 
+#ifdef CONFIG_APP_FACTORY_TEST
+	/* Current CMD is factory test, this need return immediately */
+	if ( service_cmd_is_factory_test(msg->msg, msg->msg_len) )
+	{
+		if ( !k_fifo_is_empty(&mqtt_rx_dispatch_fifo) )
+		{
+			/**
+			 * Current process thread is still working.
+			 * Drop this command and warning the upstream.
+			 * */
+			mqtt_msg_send("{\"cmd\": \"factory_test\", \"status\": \"busy\"}");
+			return 0;
+		}
+		else
+		{
+			/* Send message OK to upstream, and keep going */
+			mqtt_msg_send("{\"cmd\": \"factory_test\", \"status\": \"ok\"}");
+		}
+	}
+#endif /* CONFIG_APP_FACTORY_TEST */
+
 	data_item_t *item = NULL;
 
 	item = k_malloc(sizeof(data_item_t));

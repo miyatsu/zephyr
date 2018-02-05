@@ -1381,6 +1381,46 @@ out:
 	json_free_serialized_string(json);
 }
 
+bool service_cmd_is_factory_test(uint8_t *msg, size_t msg_len)
+{
+	uint8_t *buff		= NULL;
+	JSON_Value *root	= NULL;
+	char *cmd			= NULL;
+
+	bool rc = false;
+
+	buff = k_malloc(msg_len + 1);
+	if ( NULL == buff )
+	{
+		SYS_LOG_ERR("Out of memory at line: %d", __LINE__);
+		rc = false;
+		goto out;
+	}
+
+	memcpy(buff, msg, msg_len);
+	buff[lsg_len] = 0;
+
+	root = json_parse_string(buff);
+	if ( NULL == root )
+	{
+		SYS_LOG_ERR("Can not parse current json string at line: %d", __LINE__);
+		return rc = false;
+		goto out;
+	}
+
+	cmd = json_object_get_string(json_object(root), "cmd");
+	if ( NULL != cmd && 0 == strcmp(cmd, "factory_test") )
+	{
+		rc = true;
+		goto out;
+	}
+
+out:
+	json_value_free(root);
+	k_free(buff);
+	return rc;
+}
+
 #endif /* CONFIG_APP_FACTORY_TEST */
 
 int service_cmd_parse(uint8_t *msg, size_t msg_len)
