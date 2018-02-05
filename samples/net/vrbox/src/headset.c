@@ -544,7 +544,7 @@ out:
  * */
 static void headset_gpio_init(void)
 {
-	uint32_t temp;
+	volatile uint32_t temp;
 	uint8_t i;
 
 	gpio_comm_conf(&headset_gpio_table[0], GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
