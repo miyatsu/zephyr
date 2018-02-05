@@ -121,6 +121,7 @@ static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 	item->buff = k_malloc(item->buff_size);
 	if ( NULL == item->buff )
 	{
+		k_free(item);
 		return -ENOMEM;
 	}
 
