@@ -47,7 +47,7 @@
 
 #define SIZEOF_TOKEN(a)       (sizeof(a) - 1)
 #define SKIP_CHAR(str)        ((*str)++)
-#define SKIP_WHITESPACES(str) while (isspace(**str)) { SKIP_CHAR(str); }
+#define SKIP_WHITESPACES(str) while (isspace((unsigned char)(**str))) { SKIP_CHAR(str); }
 #define MAX(a, b)             ((a) > (b) ? (a) : (b))
 
 #undef malloc
@@ -1620,7 +1620,7 @@ JSON_Status json_object_dotset_value(JSON_Object *object, const char *name, JSON
     char *current_name = NULL;
     JSON_Object *temp_obj = NULL;
     JSON_Value *new_value = NULL;
-    if (value == NULL || name == NULL || value == NULL) {
+    if (object == NULL || name == NULL || value == NULL) {
         return JSONFailure;
     }
     dot_pos = strchr(name, '.');
