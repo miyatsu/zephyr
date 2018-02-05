@@ -1398,7 +1398,7 @@ bool service_cmd_is_factory_test(uint8_t *msg, size_t msg_len)
 	}
 
 	memcpy(buff, msg, msg_len);
-	buff[lsg_len] = 0;
+	buff[msg_len] = 0;
 
 	root = json_parse_string(buff);
 	if ( NULL == root )
