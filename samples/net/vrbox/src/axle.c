@@ -612,7 +612,7 @@ out:
 	axle_in_position_irq_disable(destination_position);
 
 	/* Wait the axle fully stopd */
-	//k_sleep(1000);
+	k_sleep(1000);
 
 	if ( 0 != rc )
 	{
