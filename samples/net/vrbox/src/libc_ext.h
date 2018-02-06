@@ -18,8 +18,8 @@ extern "C" {
 #endif /* __cplusplus */
 
 double strtod(const char * string, char **endPtr);
-double fabs(double n);
-int abs(int n);
+
+#define fabs(n) (((n) > 0) ? ((n)) : (-(n)))
 
 #ifdef __cplusplus
 }
