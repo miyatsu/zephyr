@@ -229,10 +229,12 @@ static int init2(void)
 		if ( 0 == rc )
 		{
 			/* Connect success */
-			SYS_LOG_DBG("TCP connect OK");
+			printk("TCP connect OK");
 			break;
 		}
-		SYS_LOG_ERR("TCP connect error, return: %d, retry times: %d", rc, i + 1);
+		printk("Connect error, reboot...\n");
+		sys_reboot(0);
+		printk("After reboot\n");
 	}
 
 	/* No need to check the TCP connected or not */
@@ -241,22 +243,22 @@ static int init2(void)
 	rc = mqtt_tx_connect(&ctx, &connect_msg);
 	if ( 0 != rc )
 	{
-		SYS_LOG_ERR("MQTT connect error, return %d", rc);
+		printk("MQTT connect error, return %d", rc);
 		return rc;
 	}
-	SYS_LOG_DBG("MQTT connect OK");
+	printk("MQTT connect OK");
 
 	/* Subscribe to srv/controller */
 	rc = mqtt_tx_subscribe(&ctx, sys_rand32_get(), 1, topics, topics_qos);
 	if ( 0 != rc )
 	{
-		SYS_LOG_ERR("SUB to topics error, return %d", rc);
+		printk("SUB to topics error, return %d", rc);
 		return rc;
 	}
-	SYS_LOG_DBG("SUB to topics OK");
+	printk("SUB to topics OK");
 
 	/* MQTT connection ok, subscribe topic ok. */
-	SYS_LOG_DBG("MQTT initial OK!");
+	printk("MQTT initial OK!");
 
 #if defined(CONFIG_LOG_EXT_HOOK) && defined(CONFIG_FILE_SYSTEM)
 	/**
