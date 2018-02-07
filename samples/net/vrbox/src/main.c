@@ -29,12 +29,35 @@
 #define SYS_LOG_LEVEL	SYS_LOG_LEVEL_DEBUG
 #include <logging/sys_log.h>
 
-void hardware_init(void)
+int hardware_init(void)
 {
-	__ASSERT( 0 == axle_init(), "axle_init error");
-	__ASSERT( 0 == door_init(), "door_init error" );
-	__ASSERT( 0 == infrared_init(), "infrared_init error");
-	__ASSERT( 0 == headsert_init(), "headset_init error"); 
+	int rc = 0;
+
+	rc = axle_init();
+	if ( 0 != rc)
+	{
+		SYS_LOG_ERR("axle_init error");
+	}
+
+	rc = door_init();
+	if ( 0 != rc )
+	{
+		SYS_LOG_ERR("door_init error");
+	}
+
+	rc = infrared_init();
+	if ( 0 != rc )
+	{
+		SYS_LOG_ERR("infrared_init error");
+	}
+
+	rc = headset_init();
+	if ( 0 != rc )
+	{
+		SYS_LOG_ERR("headset_init error");
+	}
+
+	return rc;
 }
 
 #ifdef CONFIG_WATCHDOG
@@ -70,18 +93,19 @@ void wdt_init(void)
 
 int main(void)
 {
+	printk("System boot success!\n");
 #ifdef CONFIG_WATCHDOG
 	wdt_init();
 #endif /* CONFIG_WATCHDOG */
-
 	net_mqtt_init();
-#ifdef CONFIG_IMG_MANAGER
-	dfu_init();
-#endif /* CONFIG_IMG_MANAGER */
 
 #ifdef CONFIG_SYS_LOG_EXT_HOOK
 	app_log_hook_init();
 #endif /* CONFIG_SYS_LOG_EXT_HOOK */
+
+#ifdef CONFIG_IMG_MANAGER
+	dfu_init();
+#endif /* CONFIG_IMG_MANAGER */
 
 	hardware_init();
 
