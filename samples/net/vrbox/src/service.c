@@ -1385,7 +1385,7 @@ bool service_cmd_is_factory_test(uint8_t *msg, uint16_t msg_len)
 {
 	uint8_t *buff		= NULL;
 	JSON_Value *root	= NULL;
-	char *cmd			= NULL;
+	const char *cmd		= NULL;
 
 	bool rc = false;
 
