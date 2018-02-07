@@ -173,7 +173,7 @@ static int dfu_get_firmware_via_http(struct http_ctx *http_ctx,
 	http_req.host		= host_name;
 
 	/* Flash context write firmware into Slot1 */
-	flash_img_init(flash_img_ctx, device_get_binding(CONFIG_SOC_FLASH_STM32_DEV_NAME));
+	flash_img_init(flash_img_ctx, device_get_binding(FLASH_DEV_NAME));
 
 	/* HTTP user data of response callback */
 	http_user_data.flash_img_ctx	= flash_img_ctx;
