@@ -396,11 +396,21 @@ static void out_json_add_status_field(JSON_Value *root_out)
 	}
 
 	/* Add "axle" field into json */
+#if defined(CONFIG_APP_SERVICE_DEBUG)
+#warning "Must disable this config when conpile this project as release version!"
+	json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 1);
+#else
 	json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 0);
+#endif
 
 	for ( i = 0; i < 4; ++i )
 	{
+#if defined(CONFIG_APP_SERVICE_DEBUG)
+#warning "Must disable this config when conpile this project as release version!"
+		json_array_append_number(json_array(door), door_status_array[i] ? 1 : 1);
+#else
 		json_array_append_number(json_array(door), door_status_array[i] ? 1 : 0);
+#endif
 	}
 
 	/* Add "door" field into json */
@@ -1549,10 +1559,12 @@ out:
 
 #ifdef CONFIG_APP_SERVICE_DEBUG
 
+
+
 void json_debug(void)
 {
 	const char json[] = "{\"cmd\": \"get_status\", \"ext\": \"12345\"}";
-	json_cmd_parse((uint8_t *)json, sizeof(json));
+	service_cmd_parse((uint8_t *)json, sizeof(json));
 }
 
 void json_debug_11(void)
@@ -1595,7 +1607,7 @@ void json_debug_(void)
 {
 	char json_cmd_open[] = "{\"cmd\": \"borrow\", \"round\": 1, \"number\": 1}";
 	JSON_Value *root_value = NULL;
-	char *cmd = NULL;
+	const char *cmd = NULL;
 
 	root_value = json_parse_string(json_cmd_open);
 	if ( NULL == root_value )

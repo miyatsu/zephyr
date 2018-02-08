@@ -117,26 +117,6 @@ int main(void)
 
 #ifdef CONFIG_APP_MAIN_DEBUG
 
-int debug(void)
-{
-	wdt_init();
-	app_init();
-	char borrow[] = "{\"cmd\": \"borrow\", \"position\": 1, \"layer\": 1}";
-	char back[] = "{\"cmd\": \"back\", \"position\": 1, \"layer\": 1}";
-	while (1)
-	{
-		k_sleep(1000);
-		printk("Start to borrow:\n");
-		json_cmd_parse(borrow, sizeof(borrow) - 1);
-		printk("Borrow done!\n");
-
-		k_sleep(1000);
-		printk("Start to back");
-		json_cmd_parse(back, sizeof(back) - 1);
-		printk("Back done!\n");
-	}
-	return 0;
-}
 
 #endif /* CONFIG_APP_MAIN_DEBUG */
 

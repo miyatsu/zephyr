@@ -111,8 +111,9 @@ static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
 
 #ifdef CONFIG_APP_FACTORY_TEST
 	int mqtt_msg_send(const char *buff);
+	bool service_cmd_is_factory_test(uint8_t*, uint16_t);
 	/* Current CMD is factory test, this need return immediately */
-	if ( service_cmd_is_factory_test(msg->msg, msg->msg_len) )
+	if ( service_cmd_is_factory_test((uint8_t*)msg->msg, (uint16_t)msg->msg_len) )
 	{
 		if ( !k_fifo_is_empty(&mqtt_rx_dispatch_fifo) )
 		{
