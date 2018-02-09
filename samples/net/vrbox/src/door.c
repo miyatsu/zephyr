@@ -700,6 +700,23 @@ int door_close(uint8_t layer)
 	{
 		goto out;
 	}
+	else if ( DOOR_STATE_OPENED == door_state )
+	{
+		/**
+		 * If the door is fully opened, we start to close door first.
+		 * This will prevent the possibility close in position irq
+		 * triggering once the open in position switch is disconnect
+		 * to GND.
+		 *
+		 * We assume 500ms is enough for the to move and make the open
+		 * in position switch disconnect to GND.
+		 *
+		 * Note: This function can be called many times, so there is no
+		 * side effects when try to call this function twice.
+		 * */
+		door_close_write_gpio(layer);
+		k_sleep(500);
+	}
 
 	/* Reset semaphore before enable irq */
 	k_sem_reset(&door_close_in_position_irq_sem[layer - 1]);
