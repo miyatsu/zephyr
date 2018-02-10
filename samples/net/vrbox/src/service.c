@@ -397,7 +397,7 @@ static void out_json_add_status_field(JSON_Value *root_out)
 
 	/* Add "axle" field into json */
 #if defined(CONFIG_APP_SERVICE_DEBUG)
-#warning "Must disable this config when conpile this project as release version!"
+#warning "Must disable this config when compile this project as release version!"
 	json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 1);
 #else
 	json_object_set_number(json_object(root_out), "axle", axle_status ? 1 : 0);
@@ -406,7 +406,7 @@ static void out_json_add_status_field(JSON_Value *root_out)
 	for ( i = 0; i < 4; ++i )
 	{
 #if defined(CONFIG_APP_SERVICE_DEBUG)
-#warning "Must disable this config when conpile this project as release version!"
+#warning "Must disable this config when compile this project as release version!"
 		json_array_append_number(json_array(door), door_status_array[i] ? 1 : 1);
 #else
 		json_array_append_number(json_array(door), door_status_array[i] ? 1 : 0);
