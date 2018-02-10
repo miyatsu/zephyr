@@ -60,7 +60,7 @@ int8_t headset_get_stock(void)
  * */
 static void headset_dial_rotate_enable_disable(uint8_t enable)
 {
-	gpio_comm_write(&headset_gpio_table[0], !enable);
+	gpio_comm_write(&headset_gpio_table[0], enable);
 }
 
 /**
@@ -547,7 +547,7 @@ static void headset_gpio_init(void)
 	uint32_t temp;
 	uint8_t i;
 
-	gpio_comm_conf(&headset_gpio_table[0], GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
+	gpio_comm_conf(&headset_gpio_table[0], GPIO_DIR_OUT | GPIO_PUD_PULL_DOWN);
 	gpio_comm_conf(&headset_gpio_table[2], GPIO_DIR_IN  | GPIO_PUD_PULL_UP);
 	gpio_comm_conf(&headset_gpio_table[3], GPIO_DIR_OUT | GPIO_PUD_PULL_UP);
 
@@ -556,7 +556,7 @@ static void headset_gpio_init(void)
 		gpio_comm_read(&headset_gpio_table[i], &temp);
 	}
 
-	gpio_comm_write(&headset_gpio_table[0], 1);
+	gpio_comm_write(&headset_gpio_table[0], 0);
 	gpio_comm_write(&headset_gpio_table[3], 1);
 }
 
@@ -636,7 +636,7 @@ int headset_ft_accuracy(void)
 
 void headset_debug(void)
 {
-	SYS_LOG_DBG("Start to run debug...");
+	printk("Start to run %s...\n", __func__);
 	headset_init();
 	while ( 1 )
 	{
