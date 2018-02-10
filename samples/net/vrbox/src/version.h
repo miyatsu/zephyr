@@ -21,7 +21,7 @@ extern "C" {
 #define CONFIG_APP_DFU_VERSION_MINOR	0
 #define CONFIG_APP_DFU_VERSION_PATCH	2
 
-#define CONFIG_APP_DFU_VERSION_BUILD	14
+#define CONFIG_APP_DFU_VERSION_BUILD	15
 /**
  * Application version build level,
  * zero means this version is release for production usage,
