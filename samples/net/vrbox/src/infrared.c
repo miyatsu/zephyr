@@ -87,7 +87,7 @@ uint8_t* infrared_get_status_array(void)
 
 	/* Turn on infrared power */
 	infrared_power_switch_on_off(1);
-	k_sleep(10);
+	k_sleep(100);
 
 	/* Get all gpio status */
 	for ( i = 0; i < 4; ++i )
