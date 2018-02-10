@@ -572,7 +572,7 @@ int door_open(uint8_t layer)
 		 * side effects when try to call this function twice.
 		 * */
 		door_open_write_gpio(layer);
-		k_sleep(500);
+		k_sleep(800);
 	}
 
 	/* Reset semaphore before enable irq */
@@ -715,7 +715,7 @@ int door_close(uint8_t layer)
 		 * side effects when try to call this function twice.
 		 * */
 		door_close_write_gpio(layer);
-		k_sleep(500);
+		k_sleep(800);
 	}
 
 	/* Reset semaphore before enable irq */
@@ -946,7 +946,7 @@ int8_t door_admin_close(void)
 			(void *)&layer[i], (void *)&thread_sem[i], (void*)&thread_rc[i],
 			0, 0, K_NO_WAIT );
 			/* Prio: 0, Flag: 0, Delay: No delay */
-		k_sleep(200);
+		k_sleep(100);
 	}
 
 	/* Wait all four initial thread return */
@@ -1013,7 +1013,7 @@ int8_t door_admin_open(void)
 			(void *)&layer[i], (void *)&thread_sem[i], (void*)&thread_rc[i],
 			0, 0, K_NO_WAIT );
 			/* Prio: 0, Flag: 0, Delay: No delay */
-		k_sleep(200);
+		k_sleep(100);
 	}
 
 	/* Wait door to opened */
